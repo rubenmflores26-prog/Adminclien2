@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#006b6b">
+<link rel="manifest" href="manifest.json">
+<title>AdminClientes</title>
+<style>
+:root{--p:#006b6b;--p2:#008f7a;--bg:#f4f7f7;--card:#fff;--txt:#173232;--muted:#6c7b7b;--danger:#e5484d;--ok:#22a06b;--blue:#2775e6}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--txt)}
+button,input,select,textarea{font:inherit}button{border:0;cursor:pointer}
+.app{max-width:600px;margin:auto;min-height:100vh;background:var(--bg);padding-bottom:76px}
+.top{position:sticky;top:0;z-index:5;background:var(--p);color:white;padding:16px;display:flex;align-items:center;justify-content:space-between}
+.top h1{font-size:20px;margin:0}.top button{background:transparent;color:#fff;font-size:22px}
+main{padding:14px}.search{background:#fff;border-radius:14px;padding:12px;border:1px solid #dde7e7;width:100%;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.stat{padding:12px;border-radius:12px;background:#fff;text-align:center;border:1px solid #e1e9e9}.stat b{font-size:22px;display:block}.stat small{color:var(--muted)}
+.btn{padding:12px 14px;border-radius:11px;font-weight:700}.primary{background:var(--p2);color:#fff}.outline{background:#fff;border:1px solid var(--p);color:var(--p)}.danger{background:#fff0f0;color:var(--danger);border:1px solid #ffd0d0}
+.card{background:var(--card);border-radius:15px;padding:14px;margin:10px 0;border:1px solid #e1e9e9;box-shadow:0 2px 8px #00000008}
+.row{display:flex;gap:12px;align-items:center}.grow{flex:1}.avatar{width:52px;height:52px;border-radius:50%;object-fit:cover;background:#dce6e6;display:grid;place-items:center;font-size:22px}.badge{padding:5px 9px;border-radius:999px;font-size:12px;font-weight:800}.paid{background:#dff7e9;color:#18784e}.pending{background:#ffe4e5;color:#b4232a}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.field{margin:10px 0}.field label{display:block;font-weight:700;font-size:13px;margin-bottom:5px}.field input,.field select,.field textarea{width:100%;padding:11px;border:1px solid #cfdcdc;border-radius:10px;background:#fff}.field textarea{min-height:80px}
+.photo{width:120px;height:120px;border-radius:16px;object-fit:cover;background:#dce6e6;display:block;margin:8px auto}
+.mapbox{background:#e8efef;border-radius:14px;padding:18px;text-align:center;margin-top:10px}
+.empty{text-align:center;color:var(--muted);padding:30px 10px}.hidden{display:none!important}
+.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(600px,100%);background:#fff;border-top:1px solid #dfe8e8;display:grid;grid-template-columns:repeat(5,1fr);z-index:10}.nav button{padding:9px 2px;background:#fff;color:#647474;font-size:11px}.nav button b{display:block;font-size:20px}.nav .active{color:var(--p);font-weight:800}
+h2{font-size:18px;margin:10px 0}.back{font-size:14px;color:var(--p);background:none;padding:0;margin-bottom:8px}
+.login{min-height:100vh;display:grid;place-items:center;padding:24px;background:linear-gradient(#005b61,#008b78)}.loginbox{background:#fff;border-radius:24px;padding:26px;width:min(430px,100%);text-align:center}.logo{font-size:44px}.loginbox h1{font-size:28px;margin:5px}.loginbox p{color:var(--muted)}
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:#173232;color:#fff;padding:10px 16px;border-radius:999px;z-index:20;display:none}
+</style>
+</head>
+<body>
+<div id="root"></div><div id="toast" class="toast"></div>
+<script>
+const KEY='adminclientes_v1';
+let db=JSON.parse(localStorage.getItem(KEY)||'{"clients":[],"payments":[]}');
+let screen='login', editing=null, activeClient=null;
+
+function save(){localStorage.setItem(KEY,JSON.stringify(db))}
+function toast(t){const e=document.getElementById('toast');e.textContent=t;e.style.display='block';setTimeout(()=>e.style.display='none',2200)}
+function money(n){return new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format(Number(n)||0)}
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function photo(c){return c.photo?`<img class="avatar" src="${c.photo}">`:'<div class="avatar">👤</div>'}
+function totalPaid(){return db.payments.reduce((a,p)=>a+Number(p.amount||0),0)}
+function render(){
+ if(screen==='login') return renderLogin();
+ let content= screen==='home'?home():screen==='clients'?clients():screen==='new'?form():screen==='detail'?detail():screen==='pay'?payForm():screen==='history'?history():screen==='map'?map():screen==='reports'?reports():settings();
+ document.getElementById('root').innerHTML=`<div class="app"><div class="top"><h1>AdminClientes</h1><button onclick="go('settings')">⚙</button></div><main>${content}</main>${nav()}</div>`;
+}
+function renderLogin(){document.getElementById('root').innerHTML=`<div class="login"><div class="loginbox"><div class="logo">👥</div><h1>AdminClientes</h1><p>Tu negocio, mejor organizado.</p><button class="btn primary" style="width:100%;margin-top:15px" onclick="screen='home';render()">🔐 Entrar</button><p style="font-size:12px;margin-top:20px">Tus datos se guardan en este teléfono.</p></div></div>`}
+function nav(){return `<div class="nav">${[['home','⌂','Inicio'],['clients','👥','Clientes'],['map','📍','Mapa'],['reports','▣','Pagos'],['settings','⚙','Más']].map(x=>`<button class="${screen===x[0]?'active':''}" onclick="go('${x[0]}')"><b>${x[1]}</b>${x[2]}</button>`).join('')}</div>`}
+function go(s){screen=s;editing=null;render();scrollTo(0,0)}
+function home(){
+ const pending=db.clients.filter(c=>c.pending).length, today=new Date().toISOString().slice(0,10);
+ const todayPaid=db.payments.filter(p=>p.date===today).reduce((a,p)=>a+Number(p.amount),0);
+ return `<input class="search" placeholder="🔎 Buscar por nombre o número de cuenta..." oninput="filterClients(this.value)">
+ <div class="grid"><div class="stat"><b>${db.clients.length}</b><small>Total clientes</small></div><div class="stat"><b>${pending}</b><small>Pendientes</small></div><div class="stat"><b>${money(todayPaid)}</b><small>Pagos hoy</small></div></div>
+ <button class="btn primary" style="width:100%;margin:12px 0" onclick="go('new')">＋ Nuevo cliente</button>
+ <h2>Clientes</h2><div id="clientList">${clientCards(db.clients.slice(0,6))}</div>`;
+}
+function filterClients(q){const arr=db.clients.filter(c=>(c.name+' '+c.account+' '+c.phone).toLowerCase().includes(q.toLowerCase()));document.getElementById('clientList').innerHTML=clientCards(arr)}
+function clientCards(arr){if(!arr.length)return '<div class="empty">No hay clientes registrados.</div>';return arr.map(c=>`<div class="card" onclick="activeClient='${c.id}';screen='detail';render()"><div class="row">${photo(c)}<div class="grow"><b>${esc(c.name)}</b><div style="font-size:13px;color:var(--muted)">Cuenta #${esc(c.account)}</div><div style="font-size:13px">${money(c.amount)} · Próx. ${c.next||'—'}</div></div><span class="badge ${c.pending?'pending':'paid'}">${c.pending?'Pendiente':'Pagado'}</span></div></div>`).join('')}
+function clients(){return `<h2>Clientes</h2><input class="search" placeholder="🔎 Buscar cliente..." oninput="filterPage(this.value)"><div id="allClients">${clientCards(db.clients)}</div><button class="btn primary" style="width:100%" onclick="go('new')">＋ Nuevo cliente</button>`}
+function filterPage(q){document.getElementById('allClients').innerHTML=clientCards(db.clients.filter(c=>(c.name+' '+c.account+' '+c.phone).toLowerCase().includes(q.toLowerCase())))}
+function form(){
+ const c=editing?db.clients.find(x=>x.id===editing):{};
+ return `<button class="back" onclick="go('clients')">← Regresar</button><h2>${editing?'Editar cliente':'Nuevo cliente'}</h2>
+ <form onsubmit="event.preventDefault();saveClient()">
+ <div class="field"><label>Número de cuenta *</label><input id="account" required value="${esc(c.account||'')}"></div>
+ <div class="field"><label>Nombre completo *</label><input id="name" required value="${esc(c.name||'')}"></div>
+ <div class="field"><label>Número de contacto</label><input id="phone" type="tel" value="${esc(c.phone||'')}"></div>
+ <div class="field"><label>Cantidad de pago *</label><input id="amount" type="number" min="0" step="0.01" required value="${c.amount||''}"></div>
+ <div class="field"><label>Frecuencia de pago</label><select id="freq"><option ${c.freq==='Semanal'?'selected':''}>Semanal</option><option ${c.freq==='Quincenal'?'selected':''}>Quincenal</option><option ${c.freq==='Mensual'||!c.freq?'selected':''}>Mensual</option></select></div>
+ <div class="field"><label>Fecha de próximo pago</label><input id="next" type="date" value="${c.next||''}"></div>
+ <div class="field"><label>Ubicación</label><div class="actions"><button type="button" class="btn primary" onclick="gps()">📍 Obtener GPS</button><button type="button" class="btn outline" onclick="openMap()">🗺️ Ver mapa</button></div><input id="lat" type="hidden" value="${c.lat||''}"><input id="lng" type="hidden" value="${c.lng||''}"><small id="loc" style="color:var(--muted)">${c.lat?'Ubicación guardada':'Sin ubicación'}</small></div>
+ <div class="field"><label>Foto</label><input id="photoFile" type="file" accept="image/*" capture="environment" onchange="previewPhoto(this)"><img id="preview" class="photo ${c.photo?'':'hidden'}" src="${c.photo||''}"></div>
+ <div class="field"><label>Notas</label><textarea id="notes">${esc(c.notes||'')}</textarea></div>
+ <button class="btn primary" style="width:100%" type="submit">Guardar cliente</button></form>`;
+}
+let newPhoto=null;
+function previewPhoto(inp){const f=inp.files[0];if(!f)return;const r=new FileReader();r.onload=e=>{newPhoto=e.target.result;const p=document.getElementById('preview');p.src=newPhoto;p.classList.remove('hidden')};r.readAsDataURL(f)}
+function saveClient(){
+ const id=editing||crypto.randomUUID();let old=db.clients.find(c=>c.id===id);
+ const c={id,account:account.value.trim(),name:name.value.trim(),phone:phone.value.trim(),amount:Number(amount.value),freq:freq.value,next:next.value,lat:lat.value,lng:lng.value,photo:newPhoto||old?.photo||'',notes:notes.value,pending:old?.pending||false};
+ const i=db.clients.findIndex(x=>x.id===id);i>=0?db.clients[i]=c:db.clients.push(c);save();newPhoto=null;activeClient=id;screen='detail';toast('Cliente guardado');render()
+}
+function current(){return db.clients.find(c=>c.id===activeClient)}
+function detail(){const c=current();if(!c)return go('clients');return `<button class="back" onclick="go('clients')">← Clientes</button><div class="card"><div class="row">${photo(c)}<div class="grow"><span class="badge paid">Cuenta #${esc(c.account)}</span><h2 style="margin:5px 0">${esc(c.name)}</h2><span class="badge ${c.pending?'pending':'paid'}">${c.pending?'Pendiente':'Activo'}</span></div></div>
+ <p>📞 ${esc(c.phone||'Sin teléfono')}</p><p>💰 Pago: <b>${money(c.amount)}</b></p><p>📅 Próximo pago: ${c.next||'—'}</p><div class="mapbox">📍 ${c.lat?'Ubicación GPS guardada':'No hay ubicación guardada'}<br><button class="btn outline" style="margin-top:10px" onclick="openMap()">Ver en mapa</button></div>${c.photo?`<img class="photo" src="${c.photo}">`:''}<p>${esc(c.notes||'')}</p>
+ <div class="actions"><button class="btn outline" onclick="editing='${c.id}';screen='new';render()">✏️ Editar</button><button class="btn primary" onclick="screen='pay';render()">💵 Registrar pago</button><button class="btn outline" onclick="screen='history';render()">📋 Historial</button><button class="btn outline" onclick="openMap()">📍 Cómo llegar</button></div></div>
+ <button class="btn danger" style="width:100%" onclick="deleteClient('${c.id}')">Eliminar cliente</button>`}
+function deleteClient(id){if(confirm('¿Eliminar este cliente?')){db.clients=db.clients.filter(c=>c.id!==id);db.payments=db.payments.filter(p=>p.clientId!==id);save();go('clients')}}
+function payForm(){const c=current();return `<button class="back" onclick="go('detail')">← Regresar</button><h2>Registrar pago</h2><div class="card"><div class="row">${photo(c)}<div><b>${esc(c.name)}</b><div>Cuenta #${esc(c.account)}</div></div></div></div><div class="field"><label>Fecha de pago</label><input id="payDate" type="date" value="${new Date().toISOString().slice(0,10)}"></div><div class="field"><label>Monto</label><input id="payAmount" type="number" step="0.01" value="${c.amount}"></div><div class="field"><label>Método de pago</label><select id="method"><option>Efectivo</option><option>Transferencia</option><option>Depósito</option><option>Otro</option></select></div><div class="field"><label>Notas</label><textarea id="payNotes"></textarea></div><button class="btn primary" style="width:100%" onclick="savePayment()">Guardar pago</button>`}
+function savePayment(){const c=current();db.payments.push({id:crypto.randomUUID(),clientId:c.id,date:payDate.value,amount:Number(payAmount.value),method:method.value,notes:payNotes.value});c.pending=false;save();toast('Pago registrado');screen='history';render()}
+function history(){const c=current(), ps=db.payments.filter(p=>p.clientId===c.id).sort((a,b)=>b.date.localeCompare(a.date));return `<button class="back" onclick="go('detail')">← Regresar</button><h2>Historial de pagos</h2><div class="card"><b>${esc(c.name)}</b><div>Cuenta #${esc(c.account)}</div><div class="grid" style="margin-top:12px"><div class="stat"><b>${money(ps.reduce((a,p)=>a+p.amount,0))}</b><small>Pagado</small></div><div class="stat"><b>${ps.length}</b><small>Pagos</small></div></div></div>${ps.length?ps.map(p=>`<div class="card"><div class="row"><div class="grow"><b>${p.date}</b><div style="color:var(--muted)">${p.method}</div></div><b>${money(p.amount)}</b></div></div>`).join(''):'<div class="empty">No hay pagos registrados.</div>'}`}
+function map(){const pts=db.clients.filter(c=>c.lat&&c.lng);return `<h2>Mapa de clientes</h2><div class="mapbox" style="min-height:220px">🗺️<h3>Ubicaciones guardadas</h3><p>${pts.length} cliente(s) con GPS</p>${pts.length?pts.map(c=>`<button class="btn outline" style="margin:4px" onclick="activeClient='${c.id}';openMap()">${esc(c.name)}</button>`).join(''):'<p>Agrega GPS desde el expediente de un cliente.</p>'}</div>`}
+function openMap(){const c=current();if(c?.lat&&c?.lng)location.href=`https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}`;else toast('Este cliente no tiene ubicación GPS')}
+function gps(){if(!navigator.geolocation)return toast('GPS no disponible');navigator.geolocation.getCurrentPosition(p=>{lat.value=p.coords.latitude;lng.value=p.coords.longitude;document.getElementById('loc').textContent='Ubicación GPS guardada ✓';toast('Ubicación obtenida')},()=>toast('No se pudo obtener la ubicación'),{enableHighAccuracy:true,timeout:10000})}
+function reports(){const pending=db.clients.filter(c=>c.pending).length;return `<h2>Reportes</h2><div class="card"><b>Resumen</b><p>Clientes registrados: <b>${db.clients.length}</b></p><p>Con pago pendiente: <b>${pending}</b></p><p>Total cobrado: <b>${money(totalPaid())}</b></p><button class="btn primary" onclick="exportCSV()">⬇️ Exportar clientes a Excel/CSV</button></div><div class="card"><b>Pagos registrados</b><p>${db.payments.length} pagos · ${money(totalPaid())}</p></div>`}
+function settings(){return `<h2>Configuración</h2><div class="card"><button class="btn outline" style="width:100%;margin:4px 0" onclick="exportBackup()">☁️ Copia de seguridad</button><button class="btn outline" style="width:100%;margin:4px 0" onclick="importBackup()">↩️ Restaurar datos</button><button class="btn danger" style="width:100%;margin:4px 0" onclick="if(confirm('¿Borrar TODOS los datos?')){db={clients:[],payments:[]};save();toast('Datos borrados');render()}">🗑️ Borrar todos los datos</button></div><div class="card"><b>AdminClientes v1.0</b><p>Aplicación local para administrar clientes, pagos, fotografías y ubicaciones.</p></div>`}
+function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500)}
+function exportBackup(){download('adminclientes-respaldo.json',JSON.stringify(db,null,2),'application/json');toast('Respaldo creado')}
+function importBackup(){const i=document.createElement('input');i.type='file';i.accept='.json';i.onchange=()=>{const r=new FileReader();r.onload=()=>{try{db=JSON.parse(r.result);save();toast('Datos restaurados');render()}catch{toast('Archivo no válido')}};r.readAsText(i.files[0])};i.click()}
+function exportCSV(){let rows=[['Cuenta','Nombre','Teléfono','Pago','Frecuencia','Próximo pago','Pendiente','Latitud','Longitud','Notas']];db.clients.forEach(c=>rows.push([c.account,c.name,c.phone,c.amount,c.freq,c.next,c.pending?'Sí':'No',c.lat,c.lng,c.notes]));download('clientes.csv',rows.map(r=>r.map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(',')).join('\\n'),'text/csv;charset=utf-8');toast('Archivo exportado')}
+render();
+</script>
+</body>
+</html>
