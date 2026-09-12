@@ -2,9 +2,10 @@
   "name": "AdminClientes",
   "short_name": "AdminClientes",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#f4f7f7",
   "theme_color": "#006b6b",
   "lang": "es-MX",
-  "icons": []
+  "description": "Administración de clientes, pagos, fotos y ubicaciones."
 }
