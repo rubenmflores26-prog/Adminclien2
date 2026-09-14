@@ -1,35 +1,92 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#006b6b"><title>AdminClientes V2.2</title><style>
-body{margin:0;background:#f4f7f7;font-family:system-ui;color:#173232}.app{max-width:600px;margin:auto;padding-bottom:70px}.top{background:#006b6b;color:#fff;padding:16px;display:flex;justify-content:space-between}.main{padding:14px}.card{background:#fff;border:1px solid #dde7e7;border-radius:15px;padding:14px;margin:10px 0}.field{margin:10px 0}.field label{display:block;font-weight:700;font-size:13px;margin-bottom:5px}.field input,.field select,.field textarea{width:100%;box-sizing:border-box;padding:11px;border:1px solid #cfdcdc;border-radius:10px}.btn{padding:12px 14px;border-radius:11px;font-weight:700;border:0}.primary{background:#008f7a;color:#fff}.outline{background:#fff;border:1px solid #006b6b;color:#006b6b}.danger{background:#fff0f0;color:#c22}.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(600px,100%);display:grid;grid-template-columns:repeat(3,1fr);background:#fff;border-top:1px solid #ddd}.nav button{padding:12px;border:0;background:#fff}.photo{width:120px;height:120px;object-fit:cover;border-radius:15px;display:block;margin:8px auto}.empty{text-align:center;color:#687}.login{min-height:100vh;display:grid;place-items:center;padding:20px;background:#006b6b}.loginbox{background:#fff;padding:25px;border-radius:22px;width:min(400px,90%)}.msg{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#173232;color:#fff;padding:10px 15px;border-radius:20px;display:none;z-index:20}.row{display:flex;gap:12px;align-items:center}.grow{flex:1}.avatar{width:52px;height:52px;border-radius:50%;object-fit:cover;background:#dde;display:grid;place-items:center}
-.filebtn{position:relative;display:flex;align-items:center;justify-content:center;min-height:50px;overflow:hidden}.filebtn input{position:absolute;inset:0;width:100%;height:100%;opacity:.01;z-index:5}
-</style></head><body><div id="root"></div><div id="msg" class="msg"></div>
+<!doctype html><html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#006b6b"><title>AdminClientes V2</title>
+<style>
+body{margin:0;font-family:system-ui;background:#f4f7f7;color:#173232}.app{max-width:620px;margin:auto;padding-bottom:70px}
+header{background:#006b6b;color:white;padding:16px;font-size:21px;font-weight:800}main{padding:14px}
+.card{background:white;border:1px solid #dfe8e8;border-radius:15px;padding:14px;margin:10px 0}
+input,select,textarea,button{font:inherit}input,select,textarea{width:100%;box-sizing:border-box;padding:11px;margin:5px 0 12px;border:1px solid #cbd8d8;border-radius:10px}
+button{padding:11px 14px;border-radius:10px;border:0;font-weight:700}.primary{background:#008f7a;color:white}.outline{background:white;color:#006b6b;border:1px solid #006b6b}.danger{background:#ffe9e9;color:#b4232a}
+.row{display:flex;gap:12px;align-items:center}.grow{flex:1}.avatar{width:55px;height:55px;border-radius:50%;object-fit:cover;background:#dce6e6;display:grid;place-items:center}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.nav{position:fixed;bottom:0;left:0;right:0;background:white;border-top:1px solid #ddd;display:flex;justify-content:space-around;padding:8px}.nav button{background:white;color:#006b6b}
+.login{min-height:100vh;display:grid;place-items:center;background:#006b6b}.login .card{width:min(400px,85%);text-align:center}
+.filebtn{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:48px}.filebtn input{position:absolute;inset:0;opacity:.01;margin:0;cursor:pointer}
+.photo{max-width:150px;max-height:150px;border-radius:14px;display:block;margin:8px auto}
+small{color:#687777}.error{background:#ffe9e9;color:#9b1c1c;padding:10px;border-radius:10px;margin:10px 0}
+</style></head><body><div id="root"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script>
-const URL='https://dwijfgznbzhuhrdrwdri.supabase.co',KEY='sb_publishable_aD4TGdGO5zxuPL8wld_PMQ_EWFuvA9Z',BUCKET='Fotos-clientes';const sb=supabase.createClient(URL,KEY);let session=null,clients=[],payments=[],screen='login',active=null,editing=null,file=null;
-const $=id=>document.getElementById(id),v=id=>$(id)?.value||'',esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])),money=n=>new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format(Number(n)||0),date=d=>d?String(d).slice(0,10).split('-').reverse().join('/'): '—';function msg(x){$('msg').textContent=x;$('msg').style.display='block';clearTimeout(window.t);window.t=setTimeout(()=>$('msg').style.display='none',2600)}
-async function load(){if(!session)return;let a=await sb.from('clientes').select('*').eq('user_id',session.user.id).order('created_at',{ascending:false});let b=await sb.from('pagos').select('*').eq('user_id',session.user.id).order('fecha_pago',{ascending:false});if(a.error)throw a.error;if(b.error)throw b.error;clients=a.data||[];payments=b.data||[]}
-async function signed(path){if(!path)return '';let r=await sb.storage.from(BUCKET).createSignedUrl(path,3600);return r.data?.signedUrl||''}
-function go(s){screen=s;render()}function cur(){return clients.find(c=>c.id===active)}function pending(c){return c.proximo_pago&&String(c.proximo_pago).slice(0,10)<new Date().toISOString().slice(0,10)}
-function render(){if(screen==='login'){loginView();return}let body=screen==='home'?home():screen==='clients'?clientPage():screen==='new'?form():screen==='detail'?detail():screen==='pay'?pay():screen==='history'?history():settings();$('root').innerHTML=`<div class="app"><div class="top"><b>AdminClientes V2.2</b><button style="background:none;color:#fff;border:0" onclick="go('settings')">⚙</button></div><div class="main">${body}</div>${nav()}</div>`;setTimeout(loadPhotos,0)}
-function loginView(){$('root').innerHTML=`<div class="login"><div class="loginbox"><h1>👥 AdminClientes</h1><p>Clientes sincronizados con Supabase</p><div class="field"><label>Correo</label><input id="email" type="email"></div><div class="field"><label>Contraseña</label><input id="pass" type="password"></div><button class="btn primary" style="width:100%" onclick="login()">Iniciar sesión</button></div></div>`}
-async function login(){let r=await sb.auth.signInWithPassword({email:v('email'),password:v('pass')});if(r.error)msg('Error: '+r.error.message);else msg('Sesión iniciada ✓')}
-async function logout(){await sb.auth.signOut()}
-function nav(){return `<div class="nav"><button onclick="go('home')">🏠<br>Inicio</button><button onclick="go('clients')">👥<br>Clientes</button><button onclick="go('settings')">⚙<br>Más</button></div>`}
-function cards(a){if(!a.length)return '<div class="empty">No hay clientes registrados.</div>';return a.map(c=>`<div class="card" onclick="openClient('${c.id}')"><div class="row"><div class="avatar" id="im${c.id}">👤</div><div class="grow"><b>${esc(c.nombre)}</b><div>Cuenta #${esc(c.numero_cuenta)}</div><div>${money(c.cantidad_pago)} · Próx. ${date(c.proximo_pago)}</div></div></div></div>`).join('')}
-async function loadPhotos(){for(const c of clients){if(c.foto_url){let u=await signed(c.foto_url),e=$('im'+c.id);if(e&&u)e.innerHTML=`<img class="avatar" src="${u}">`}}}
-function home(){return `<input class="field" id="q" placeholder="🔎 Buscar cliente" oninput="search(this.value)"><div class="actions"><div class="card"><b>${clients.length}</b><br>Clientes</div><div class="card"><b>${clients.filter(pending).length}</b><br>Pendientes</div></div><button class="btn primary" style="width:100%" onclick="screen='new';editing=null;render()">＋ Nuevo cliente</button><h2>Clientes</h2><div id="list">${cards(clients.slice(0,10))}</div>`}
-function search(q){$('list').innerHTML=cards(clients.filter(c=>(c.nombre+' '+c.numero_cuenta+' '+(c.telefono||'')).toLowerCase().includes(q.toLowerCase())));loadPhotos()}
-function clientPage(){return `<h2>Clientes</h2><input class="field" placeholder="🔎 Buscar" oninput="searchPage(this.value)"><div id="list">${cards(clients)}</div><button class="btn primary" style="width:100%" onclick="screen='new';editing=null;render()">＋ Nuevo cliente</button>`}function searchPage(q){$('list').innerHTML=cards(clients.filter(c=>(c.nombre+' '+c.numero_cuenta+' '+(c.telefono||'')).toLowerCase().includes(q.toLowerCase())));loadPhotos()}
-function form(){let c=editing?cur():{};return `<button class="btn outline" onclick="go('clients')">← Regresar</button><h2>${editing?'Editar':'Nuevo'} cliente</h2><form onsubmit="event.preventDefault();saveClient()"><div class="field"><label>Número de cuenta *</label><input id="account" required value="${esc(c.numero_cuenta||'')}"></div><div class="field"><label>Nombre *</label><input id="name" required value="${esc(c.nombre||'')}"></div><div class="field"><label>Contacto</label><input id="phone" type="tel" value="${esc(c.telefono||'')}"></div><div class="field"><label>Cantidad de pago *</label><input id="amount" type="number" step="0.01" required value="${c.cantidad_pago??''}"></div><div class="field"><label>Frecuencia</label><select id="freq"><option>Semanal</option><option>Quincenal</option><option selected>Mensual</option></select></div><div class="field"><label>Próximo pago</label><input id="next" type="date" value="${String(c.proximo_pago||'').slice(0,10)}"></div><div class="field"><label>Ubicación</label><div class="actions"><button type="button" class="btn primary" onclick="gps()">📍 GPS</button><button type="button" class="btn outline" onclick="maps()">🗺️ Mapa</button></div><input id="lat" type="hidden" value="${c.latitud??''}"><input id="lng" type="hidden" value="${c.longitud??''}"><small id="loc">${c.latitud?'Ubicación guardada':'Sin ubicación'}</small></div><div class="field"><label>Foto</label><div class="actions"><label class="btn primary filebtn">📷 Tomar foto<input type="file" accept="image/*" capture="environment" onchange="pick(this)"></label><label class="btn outline filebtn">🖼️ Galería<input type="file" accept="image/*" onchange="pick(this)"></label></div><div id="preview"></div></div><div class="field"><label>Notas</label><textarea id="notes">${esc(c.notas||'')}</textarea></div><button class="btn primary" style="width:100%">💾 Guardar cliente</button></form>`}
-function pick(i){file=i.files?.[0]||null;if(file){$('preview').innerHTML=`<img class="photo" src="${URL.createObjectURL(file)}">`;msg('Foto seleccionada ✓')}}
-function gps(){navigator.geolocation.getCurrentPosition(p=>{$('lat').value=p.coords.latitude;$('lng').value=p.coords.longitude;$('loc').textContent='Ubicación guardada ✓';msg('Ubicación obtenida')},()=>msg('No se pudo obtener GPS'))}
-async function saveClient(){let p={user_id:session.user.id,numero_cuenta:v('account').trim(),nombre:v('name').trim(),telefono:v('phone').trim(),cantidad_pago:Number(v('amount')),frecuencia_pago:v('freq'),proximo_pago:v('next')||null,latitud:v('lat')?Number(v('lat')):null,longitud:v('lng')?Number(v('lng')):null,notas:v('notes').trim()};let r=editing?await sb.from('clientes').update(p).eq('id',editing).eq('user_id',session.user.id).select().single():await sb.from('clientes').insert(p).select().single();if(r.error)return msg('No se pudo guardar: '+r.error.message);let id=r.data.id;if(file){let ext=(file.name.split('.').pop()||'jpg').replace(/[^a-z0-9]/gi,'');let path=`${session.user.id}/${id}/${crypto.randomUUID()}.${ext||'jpg'}`;let u=await sb.storage.from(BUCKET).upload(path,file,{contentType:file.type||'image/jpeg',upsert:true});if(u.error)return msg('Cliente guardado, foto no subida: '+u.error.message);let x=await sb.from('clientes').update({foto_url:path}).eq('id',id).eq('user_id',session.user.id);if(x.error)return msg('Cliente guardado, foto no asociada: '+x.error.message)}await load();active=id;file=null;screen='detail';render();msg('Cliente guardado en Supabase ✓')}
-function openClient(id){active=id;screen='detail';render()}
-async function detail(){return ''}
-function detail(){let c=cur();if(!c)return '<div class="empty">Cliente no encontrado.</div>';setTimeout(async()=>{if(c.foto_url){let u=await signed(c.foto_url);if(u&&$('detailPhoto'))$('detailPhoto').src=u}},0);return `<button class="btn outline" onclick="go('clients')">← Clientes</button><div class="card"><h2>${esc(c.nombre)}</h2><p>Cuenta: <b>${esc(c.numero_cuenta)}</b></p><p>📞 ${esc(c.telefono||'Sin teléfono')}</p><p>💰 ${money(c.cantidad_pago)} · ${esc(c.frecuencia_pago||'')}</p><p>📅 Próximo pago: <b>${date(c.proximo_pago)}</b></p><p>📍 ${c.latitud?'Ubicación guardada':'Sin ubicación'}</p>${c.foto_url?'<img id="detailPhoto" class="photo" alt="Foto">':''}<p>${esc(c.notas||'')}</p><div class="actions"><button class="btn outline" onclick="editing='${c.id}';render()">✏️ Editar</button><button class="btn primary" onclick="go('pay')">💵 Pago</button><button class="btn outline" onclick="go('history')">📋 Historial</button><button class="btn outline" onclick="maps()">📍 Cómo llegar</button></div></div><button class="btn danger" style="width:100%" onclick="delClient()">Eliminar</button>`}
-function pay(){let c=cur();return `<button class="btn outline" onclick="go('detail')">← Regresar</button><h2>Registrar pago</h2><div class="card"><b>${esc(c.nombre)}</b><br>Cuenta #${esc(c.numero_cuenta)}</div><div class="field"><label>Fecha</label><input id="pdate" type="date" value="${new Date().toISOString().slice(0,10)}"></div><div class="field"><label>Monto</label><input id="pamount" type="number" step="0.01" value="${c.cantidad_pago}"></div><div class="field"><label>Método</label><select id="pmethod"><option>Efectivo</option><option>Transferencia</option><option>Depósito</option><option>Otro</option></select></div><button class="btn primary" style="width:100%" onclick="savePay()">Guardar pago</button>`}
-async function savePay(){let r=await sb.from('pagos').insert({user_id:session.user.id,cliente_id:cur().id,cantidad:Number(v('pamount')),fecha_pago:v('pdate'),metodo_pago:v('pmethod')});if(r.error)return msg('Error: '+r.error.message);await load();go('history');msg('Pago guardado ✓')}
-function history(){let c=cur(),ps=payments.filter(p=>p.cliente_id===c.id);return `<button class="btn outline" onclick="go('detail')">← Regresar</button><h2>Historial</h2>${ps.length?ps.map(p=>`<div class="card"><b>${date(p.fecha_pago)}</b> · ${money(p.cantidad)}<br>${esc(p.metodo_pago||'')}</div>`).join(''):'<div class="empty">No hay pagos.</div>'}`}
-function maps(){let c=cur();if(c?.latitud&&c?.longitud)location.href=`https://www.google.com/maps/dir/?api=1&destination=${c.latitud},${c.longitud}`;else msg('Este cliente no tiene GPS')}
-async function delClient(){if(!confirm('¿Eliminar cliente?'))return;let r=await sb.from('clientes').delete().eq('id',active).eq('user_id',session.user.id);if(r.error)return msg(r.error.message);await load();active=null;go('clients')}
-function settings(){return `<h2>Configuración</h2><div class="card"><b>${esc(session.user.email)}</b><br><br><button class="btn danger" onclick="logout()">Cerrar sesión</button></div>`}
-sb.auth.getSession().then(async r=>{session=r.data.session;if(session){try{await load();screen='home'}catch(e){msg(e.message)}}render()});sb.auth.onAuthStateChange(async(_e,s)=>{session=s;if(s){try{await load();screen='home'}catch(e){msg(e.message)}}else{clients=[];screen='login'}render()});
+const URL='https://dwijfgznbzhuhrdrwdri.supabase.co';
+const KEY='sb_publishable_aD4TGdGO5zxuPL8wld_PMQ_EWFuvA9Z';
+const db=window.supabase.createClient(URL,KEY);
+const BUCKET='Fotos-clientes';
+let session=null,clients=[],payments=[],page='login',selected=null,photoFile=null;
+
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format(Number(n)||0);
+const date=s=>s?String(s).slice(0,10).split('-').reverse().join('/'):'—';
+const $=id=>document.getElementById(id);
+function message(t){alert(t)}
+async function load(){
+ if(!session)return;
+ const a=await db.from('clientes').select('*').eq('user_id',session.user.id).order('created_at',{ascending:false});
+ const b=await db.from('pagos').select('*').eq('user_id',session.user.id).order('fecha_pago',{ascending:false});
+ if(a.error)throw a.error;if(b.error)throw b.error;clients=a.data||[];payments=b.data||[];
+}
+async function signed(path){if(!path)return'';const r=await db.storage.from(BUCKET).createSignedUrl(path,3600);return r.data?.signedUrl||''}
+async function start(){
+ const r=await db.auth.getSession();session=r.data.session;
+ if(session){try{await load();page='clients'}catch(e){page='error';window.__err=e.message}}
+ render();
+ db.auth.onAuthStateChange((_e,s)=>{session=s;if(!s){page='login';render()}});
+}
+function render(){
+ if(page==='login'){ $('root').innerHTML=`<div class="login"><div class="card"><h1>👥 AdminClientes</h1><p>Inicia sesión para sincronizar tus clientes.</p><label>Correo</label><input id="email" type="email"><label>Contraseña</label><input id="pass" type="password"><button class="primary" style="width:100%" onclick="login()">Iniciar sesión</button></div></div>`;return}
+ if(page==='error'){$('root').innerHTML=`<div class="app"><header>AdminClientes</header><main><div class="error"><b>Error al cargar:</b><br>${esc(window.__err||'Error desconocido')}</div><button class="outline" onclick="location.reload()">Reintentar</button></main></div>`;return}
+ let body=page==='clients'?list():page==='form'?form():page==='detail'?detail():page==='payments'?payForm():history();
+ $('root').innerHTML=`<div class="app"><header>AdminClientes</header><main>${body}</main><div class="nav"><button onclick="page='clients';render()">👥 Clientes</button><button onclick="newClient()">＋ Nuevo</button><button onclick="logout()">↪ Salir</button></div></div>`;
+ if(page==='clients')loadPhotos();
+ if(page==='detail')loadDetailPhoto();
+}
+async function login(){const r=await db.auth.signInWithPassword({email:$('email').value.trim(),password:$('pass').value});if(r.error)return message(r.error.message);session=r.data.session;await load();page='clients';render()}
+async function logout(){await db.auth.signOut();session=null;page='login';render()}
+function newClient(){selected=null;photoFile=null;page='form';render()}
+function list(){
+ if(!clients.length)return `<h2>Clientes</h2><div class="card" style="text-align:center">No hay clientes registrados.</div><button class="primary" onclick="newClient()">＋ Agregar cliente</button>`;
+ return `<h2>Clientes</h2><input placeholder="🔎 Buscar..." oninput="filter(this.value)"><div id="list">${cards(clients)}</div>`;
+}
+function cards(arr){return arr.map(c=>`<div class="card" onclick="openClient('${c.id}')"><div class="row"><div id="p-${c.id}" class="avatar">👤</div><div class="grow"><b>${esc(c.nombre)}</b><br><small>Cuenta #${esc(c.numero_cuenta)}</small><br>${money(c.cantidad_pago)} · Próx. ${date(c.proximo_pago)}</div></div></div>`).join('')}
+function filter(q){$('list').innerHTML=cards(clients.filter(c=>(c.nombre+' '+c.numero_cuenta+' '+(c.telefono||'')).toLowerCase().includes(q.toLowerCase())));loadPhotos()}
+async function loadPhotos(){for(const c of clients){if(!c.foto_url)continue;const u=await signed(c.foto_url);const e=$('p-'+c.id);if(e&&u)e.innerHTML=`<img class="avatar" src="${u}">`}}
+function openClient(id){selected=id;page='detail';render()}
+async function loadDetailPhoto(){const c=clients.find(x=>x.id===selected);if(!c?.foto_url)return;const u=await signed(c.foto_url);const e=$('detailPhoto');if(e&&u)e.src=u}
+function form(){
+ const c=clients.find(x=>x.id===selected)||{};
+ return `<button class="outline" onclick="page='clients';render()">← Clientes</button><h2>${selected?'Editar':'Nuevo'} cliente</h2>
+ <label>Número de cuenta *</label><input id="account" value="${esc(c.numero_cuenta)}">
+ <label>Nombre *</label><input id="name" value="${esc(c.nombre)}">
+ <label>Contacto</label><input id="phone" type="tel" value="${esc(c.telefono)}">
+ <label>Cantidad de pago *</label><input id="amount" type="number" step="0.01" value="${c.cantidad_pago??''}">
+ <label>Frecuencia</label><select id="freq"><option ${c.frecuencia_pago==='Semanal'?'selected':''}>Semanal</option><option ${c.frecuencia_pago==='Quincenal'?'selected':''}>Quincenal</option><option ${!c.frecuencia_pago||c.frecuencia_pago==='Mensual'?'selected':''}>Mensual</option></select>
+ <label>Próximo pago</label><input id="next" type="date" value="${String(c.proximo_pago||'').slice(0,10)}">
+ <div class="card"><b>Fotografía</b><div class="actions">
+ <label class="primary filebtn">📷 Tomar foto<input id="cam" type="file" accept="image/*" capture="environment" onchange="pickPhoto(this)"></label>
+ <label class="outline filebtn">🖼️ Galería<input id="gal" type="file" accept="image/*" onchange="pickPhoto(this)"></label></div>
+ <div id="preview"></div></div>
+ <label>Notas</label><textarea id="notes">${esc(c.notas)}</textarea>
+ <div class="actions"><button class="primary" onclick="saveClient()">💾 Guardar</button><button class="outline" onclick="page='clients';render()">Cancelar</button></div>`;
+}
+function pickPhoto(i){photoFile=i.files?.[0]||null;if(photoFile){const u=URL.createObjectURL(photoFile);$('preview').innerHTML=`<img class="photo" src="${u}">`;}}
+async function saveClient(){
+ const p={user_id:session.user.id,numero_cuenta:$('account').value.trim(),nombre:$('name').value.trim(),telefono:$('phone').value.trim(),cantidad_pago:Number($('amount').value),frecuencia_pago:$('freq').value,proximo_pago:$('next').value||null,notas:$('notes').value};
+ if(!p.numero_cuenta||!p.nombre||!Number.isFinite(p.cantidad_pago))return message('Completa cuenta, nombre y cantidad.');
+ let r=selected?await db.from('clientes').update(p).eq('id',selected).eq('user_id',session.user.id).select().single():await db.from('clientes').insert(p).select().single();
+ if(r.error)return message(r.error.message);const id=r.data.id;
+ if(photoFile){const ext=(photoFile.name.split('.').pop()||'jpg').replace(/[^a-z0-9]/gi,'')||'jpg';const path=`${session.user.id}/${id}/${crypto.randomUUID()}.${ext}`;const u=await db.storage.from(BUCKET).upload(path,photoFile,{contentType:photoFile.type||'image/jpeg'});if(u.error)return message('Cliente guardado, pero foto: '+u.error.message);const x=await db.from('clientes').update({foto_url:path}).eq('id',id).eq('user_id',session.user.id);if(x.error)return message(x.error.message)}
+ await load();selected=id;photoFile=null;page='detail';render();message('Cliente guardado correctamente en Supabase.');
+}
+function detail(){const c=clients.find(x=>x.id===selected);if(!c)return `<p>Cliente no encontrado.</p>`;return `<button class="outline" onclick="page='clients';render()">← Clientes</button><div class="card"><h2>${esc(c.nombre)}</h2><p><b>Cuenta:</b> ${esc(c.numero_cuenta)}</p><p>📞 ${esc(c.telefono||'—')}</p><p>💰 ${money(c.cantidad_pago)} · ${esc(c.frecuencia_pago||'')}</p><p>📅 Próximo pago: <b>${date(c.proximo_pago)}</b></p><p>📍 ${c.latitud?'Ubicación guardada':'Sin ubicación'}</p>${c.foto_url?'<img id="detailPhoto" class="photo">':''}<p>${esc(c.notas||'')}</p><div class="actions"><button class="outline" onclick="page='form';render()">✏️ Editar</button><button class="primary" onclick="page='payments';render()">💵 Registrar pago</button></div></div>`}
+function payForm(){const c=clients.find(x=>x.id===selected);return `<button class="outline" onclick="page='detail';render()">← Regresar</button><h2>Registrar pago</h2><div class="card"><b>${esc(c.nombre)}</b><br>Cuenta #${esc(c.numero_cuenta)}</div><label>Fecha</label><input id="pd" type="date" value="${new Date().toISOString().slice(0,10)}"><label>Monto</label><input id="pa" type="number" step="0.01" value="${c.cantidad_pago}"><label>Método</label><select id="pm"><option>Efectivo</option><option>Transferencia</option><option>Depósito</option><option>Otro</option></select><label>Notas</label><textarea id="pn"></textarea><button class="primary" style="width:100%" onclick="savePayment()">Guardar pago</button>`}
+async function savePayment(){const c=clients.find(x=>x.id===selected);const r=await db.from('pagos').insert({user_id:session.user.id,cliente_id:c.id,cantidad:Number($('pa').value),fecha_pago:$('pd').value,metodo_pago:$('pm').value,notas:$('pn').value});if(r.error)return message(r.error.message);await load();page='detail';render();message('Pago guardado.')}
+function history(){const c=clients.find(x=>x.id===selected),ps=payments.filter(p=>p.cliente_id===c.id);return `<button class="outline" onclick="page='detail';render()">← Regresar</button><h2>Historial</h2>${ps.length?ps.map(p=>`<div class="card">${date(p.fecha_pago)} — <b>${money(p.cantidad)}</b><br><small>${esc(p.metodo_pago||'')}</small></div>`).join(''):'<div class="card">No hay pagos.</div>'}`}
+start();
 </script></body></html>
