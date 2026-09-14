@@ -15,18 +15,20 @@ main{padding:14px}
 input,select,textarea,button{font:inherit}
 input,select,textarea{width:100%;box-sizing:border-box;padding:11px;margin:5px 0 12px;border:1px solid #cbd8d8;border-radius:10px}
 button{padding:11px 14px;border-radius:10px;border:0;font-weight:700}
-.primary{background:#008f7a;color:white}.outline{background:white;color:#006b6b;border:1px solid #006b6b}
+.primary{background:#008f7a;color:white}
+.outline{background:white;color:#006b6b;border:1px solid #006b6b}
 .row{display:flex;gap:12px;align-items:center}.grow{flex:1}
 .avatar{width:55px;height:55px;border-radius:50%;object-fit:cover;background:#dce6e6;display:grid;place-items:center}
 .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .nav{position:fixed;bottom:0;left:0;right:0;background:white;border-top:1px solid #ddd;display:flex;justify-content:space-around;padding:8px;z-index:1000}
-.nav button{background:white;color:#006b6b;font-size:12px}
+.nav button{background:white;color:#006b6b}
 .login{min-height:100vh;display:grid;place-items:center;background:#006b6b}
 .login .card{width:min(400px,85%);text-align:center}
 .filebtn{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:48px}
 .filebtn input{position:absolute;inset:0;opacity:.01;margin:0;cursor:pointer}
 .photo{max-width:150px;max-height:150px;border-radius:14px;display:block;margin:8px auto}
-small{color:#687777}.error{background:#ffe9e9;color:#9b1c1c;padding:10px;border-radius:10px;margin:10px 0}
+small{color:#687777}
+.error{background:#ffe9e9;color:#9b1c1c;padding:10px;border-radius:10px;margin:10px 0}
 #map{height:330px;border-radius:12px;margin:8px 0 12px}
 .mapnote{font-size:13px;color:#687777}
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:9px}
@@ -35,219 +37,801 @@ small{color:#687777}.error{background:#ffe9e9;color:#9b1c1c;padding:10px;border-
 .stat small{font-size:12px}
 .sectiontitle{display:flex;justify-content:space-between;align-items:center;margin-top:18px}
 .sectiontitle h3{margin:0}
-.alert{border-left:4px solid #d97706}.dangerbox{border-left:4px solid #b4232a}.greenbox{border-left:4px solid #008f7a}
+.alert{border-left:4px solid #d97706}
+.dangerbox{border-left:4px solid #b4232a}
+.greenbox{border-left:4px solid #008f7a}
 .payment{border-left:4px solid #008f7a;padding-left:10px;margin:10px 0}
-.collection-total{font-size:28px;font-weight:800;margin:5px 0}
-.collection-tabs{display:flex;gap:7px;overflow:auto;margin:10px 0}
-.collection-tabs button{white-space:nowrap}
-.clientline{display:flex;justify-content:space-between;gap:10px;align-items:center}
-.badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:700;background:#eef4f4}
-.badge.red{background:#ffe9e9;color:#a21d24}.badge.orange{background:#fff1d6;color:#8a5200}.badge.green{background:#e5f6ef;color:#08734f}
-.locationbtn{white-space:nowrap}
 </style>
 </head>
 <body>
 <div id="root"></div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 <script>
 const SUPABASE_URL='https://dwijfgznbzhuhrdrwdri.supabase.co';
 const SUPABASE_KEY='sb_publishable_aD4TGdGO5zxuPL8wld_PMQ_EWFuvA9Z';
 const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 const BUCKET='Fotos-clientes';
+
 let session=null,clients=[],payments=[],page='login',selected=null,photoFile=null;
-let bootError='',selectedLat=null,selectedLng=null,map=null,mapMarker=null,collectionFilter='all';
+let bootError='',selectedLat=null,selectedLng=null,map=null,mapMarker=null;
 
 document.addEventListener('DOMContentLoaded',()=>{
  render();
- start().catch(e=>{bootError=e?.message||String(e);page='error';render();});
+ start().catch(e=>{
+   bootError=e?.message||String(e);
+   page='error';
+   render();
+ });
 });
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const money=n=>new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format(Number(n)||0);
+
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({
+ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+}[c]));
+
+const money=n=>new Intl.NumberFormat('es-MX',{
+ style:'currency',currency:'MXN'
+}).format(Number(n)||0);
+
 const date=s=>s?String(s).slice(0,10).split('-').reverse().join('/'):'—';
-const localToday=()=>{const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10)};
+
+const localToday=()=>{
+ const d=new Date();
+ d.setMinutes(d.getMinutes()-d.getTimezoneOffset());
+ return d.toISOString().slice(0,10);
+};
+
 const $=id=>document.getElementById(id);
+
 function message(t){alert(t)}
 
 async function load(){
  if(!session)return;
- const a=await db.from('clientes').select('*').eq('user_id',session.user.id).order('created_at',{ascending:false});
- const b=await db.from('pagos').select('*').eq('user_id',session.user.id).order('fecha_pago',{ascending:false});
- if(a.error)throw a.error;if(b.error)throw b.error;
- clients=a.data||[];payments=b.data||[];
+
+ const a=await db.from('clientes')
+   .select('*')
+   .eq('user_id',session.user.id)
+   .order('created_at',{ascending:false});
+
+ const b=await db.from('pagos')
+   .select('*')
+   .eq('user_id',session.user.id)
+   .order('fecha_pago',{ascending:false});
+
+ if(a.error)throw a.error;
+ if(b.error)throw b.error;
+
+ clients=a.data||[];
+ payments=b.data||[];
 }
+
 async function signed(path){
  if(!path)return '';
  const r=await db.storage.from(BUCKET).createSignedUrl(path,3600);
  return r.data?.signedUrl||'';
 }
+
 async function start(){
- if(!window.supabase)throw new Error('No se pudo cargar la librería de Supabase.');
- const r=await db.auth.getSession();if(r.error)throw r.error;
+ if(!window.supabase)
+   throw new Error('No se pudo cargar la librería de Supabase.');
+
+ const r=await db.auth.getSession();
+ if(r.error)throw r.error;
+
  session=r.data.session;
- if(session){try{await load();page='dashboard';render()}catch(e){bootError=e?.message||String(e);page='error';render()}}
+
+ if(session){
+   try{
+     await load();
+     page='dashboard';
+     render();
+   }catch(e){
+     bootError=e?.message||String(e);
+     page='error';
+     render();
+   }
+ }
+
  db.auth.onAuthStateChange(async(_e,s)=>{
-  session=s;
-  if(!s){page='login';render()}
-  else{try{await load();page='dashboard';render()}catch(e){bootError=e?.message||String(e);page='error';render()}}
+   session=s;
+
+   if(!s){
+     page='login';
+     render();
+   }else{
+     try{
+       await load();
+       page='dashboard';
+       render();
+     }catch(e){
+       bootError=e?.message||String(e);
+       page='error';
+       render();
+     }
+   }
  });
 }
+
 function render(){
+
  if(page==='login'){
-  $('root').innerHTML=`<div class="login"><div class="card"><h1>👥 AdminClientes</h1><p>Inicia sesión para sincronizar tus clientes.</p><label>Correo</label><input id="email" type="email"><label>Contraseña</label><input id="pass" type="password"><button class="primary" style="width:100%" onclick="login()">Iniciar sesión</button></div></div>`;return;
+   $('root').innerHTML=`
+   <div class="login">
+    <div class="card">
+     <h1>👥 AdminClientes</h1>
+     <p>Inicia sesión para sincronizar tus clientes.</p>
+     <label>Correo</label>
+     <input id="email" type="email">
+     <label>Contraseña</label>
+     <input id="pass" type="password">
+     <button class="primary" style="width:100%" onclick="login()">Iniciar sesión</button>
+    </div>
+   </div>`;
+   return;
  }
+
  if(page==='error'){
-  $('root').innerHTML=`<div class="app"><header>AdminClientes</header><main><div class="error"><b>Error al cargar:</b><br>${esc(bootError||'Error desconocido')}</div><button class="outline" onclick="location.reload()">Reintentar</button></main></div>`;return;
+   $('root').innerHTML=`
+   <div class="app">
+    <header>AdminClientes</header>
+    <main>
+     <div class="error"><b>Error al cargar:</b><br>${esc(bootError||'Error desconocido')}</div>
+     <button class="outline" onclick="location.reload()">Reintentar</button>
+    </main>
+   </div>`;
+   return;
  }
- let body=page==='dashboard'?dashboard():page==='collection'?collection():page==='clients'?list():page==='form'?form():page==='detail'?detail():page==='payments'?payForm():history();
- $('root').innerHTML=`<div class="app"><header>AdminClientes</header><main>${body}</main><div class="nav"><button onclick="page='dashboard';render()">🏠 Inicio</button><button onclick="page='collection';render()">💰 Cobranza</button><button onclick="page='clients';render()">👥 Clientes</button><button onclick="newClient()">＋ Nuevo</button><button onclick="logout()">↪ Salir</button></div></div>`;
+
+ let body=
+   page==='dashboard'?dashboard():
+   page==='clients'?list():
+   page==='form'?form():
+   page==='detail'?detail():
+   page==='payments'?payForm():
+   history();
+
+ $('root').innerHTML=`
+ <div class="app">
+  <header>AdminClientes</header>
+  <main>${body}</main>
+
+  <div class="nav">
+   <button onclick="page='dashboard';render()">🏠 Inicio</button>
+   <button onclick="page='clients';render()">👥 Clientes</button>
+   <button onclick="newClient()">＋ Nuevo</button>
+   <button onclick="logout()">↪ Salir</button>
+  </div>
+ </div>`;
+
  if(page==='clients')loadPhotos();
  if(page==='detail')loadDetailPhoto();
  if(page==='form')setTimeout(initMap,100);
 }
+
 async function login(){
- const r=await db.auth.signInWithPassword({email:$('email').value.trim(),password:$('pass').value});
+ const r=await db.auth.signInWithPassword({
+   email:$('email').value.trim(),
+   password:$('pass').value
+ });
+
  if(r.error)return message(r.error.message);
- session=r.data.session;await load();page='dashboard';render();
-}
-async function logout(){await db.auth.signOut();session=null;page='login';render()}
-function newClient(){selected=null;photoFile=null;selectedLat=null;selectedLng=null;page='form';render()}
-function editClient(){const c=clients.find(x=>x.id===selected);selectedLat=c?.latitud??null;selectedLng=c?.longitud??null;photoFile=null;page='form';render()}
 
-function getCollectionData(){
- const today=localToday();
- const overdue=clients.filter(c=>c.proximo_pago&&String(c.proximo_pago).slice(0,10)<today);
- const dueToday=clients.filter(c=>c.proximo_pago&&String(c.proximo_pago).slice(0,10)===today);
- const upcoming=clients.filter(c=>c.proximo_pago&&String(c.proximo_pago).slice(0,10)>today).sort((a,b)=>String(a.proximo_pago).localeCompare(String(b.proximo_pago)));
- const pending=overdue.concat(dueToday).reduce((s,c)=>s+(Number(c.cantidad_pago)||0),0);
- return {today,overdue,dueToday,upcoming,pending};
+ session=r.data.session;
+ await load();
+ page='dashboard';
+ render();
 }
+
+async function logout(){
+ await db.auth.signOut();
+ session=null;
+ page='login';
+ render();
+}
+
+function newClient(){
+ selected=null;
+ photoFile=null;
+ selectedLat=null;
+ selectedLng=null;
+ page='form';
+ render();
+}
+
+function editClient(){
+ const c=clients.find(x=>x.id===selected);
+ selectedLat=c?.latitud??null;
+ selectedLng=c?.longitud??null;
+ photoFile=null;
+ page='form';
+ render();
+}
+
 function dashboard(){
- const today=localToday(),month=today.slice(0,7);
- const paidToday=payments.filter(p=>String(p.fecha_pago).slice(0,10)===today).reduce((s,p)=>s+(Number(p.cantidad)||0),0);
- const paidMonth=payments.filter(p=>String(p.fecha_pago).slice(0,7)===month).reduce((s,p)=>s+(Number(p.cantidad)||0),0);
- const {overdue,dueToday,upcoming}=getCollectionData();
- return `<h2>🏠 Resumen</h2><div class="stats">
- <div class="stat">👥<small>Clientes</small><b>${clients.length}</b></div>
- <div class="stat">💵<small>Cobrado hoy</small><b>${money(paidToday)}</b></div>
- <div class="stat">📆<small>Cobrado este mes</small><b>${money(paidMonth)}</b></div>
- <div class="stat">🔴<small>Pagos vencidos</small><b>${overdue.length}</b></div></div>
- <div class="sectiontitle"><h3>⚠️ Atención</h3><button class="outline" onclick="page='collection';render()">Ver cobranza</button></div>
- ${overdue.length?`<div class="card dangerbox"><b>${overdue.length} cliente(s) con pago vencido</b>${overdue.slice(0,5).map(c=>`<p style="margin:8px 0"><button class="outline" onclick="openClient('${c.id}')">${esc(c.nombre)} · ${date(c.proximo_pago)}</button></p>`).join('')}</div>`:'<div class="card greenbox">✅ No hay pagos vencidos.</div>'}
- ${dueToday.length?`<div class="card alert"><b>🟠 ${dueToday.length} pago(s) vencen hoy</b>${dueToday.map(c=>`<p style="margin:8px 0"><button class="outline" onclick="openClient('${c.id}')">${esc(c.nombre)} · ${money(c.cantidad_pago)}</button></p>`).join('')}</div>`:''}
- <div class="sectiontitle"><h3>📅 Próximos pagos</h3><button class="outline" onclick="page='clients';render()">Ver clientes</button></div>
- ${upcoming.slice(0,5).map(c=>`<div class="card" onclick="openClient('${c.id}')"><b>${esc(c.nombre)}</b><br>📅 ${date(c.proximo_pago)} · ${money(c.cantidad_pago)}</div>`).join('')||'<div class="card">No hay próximos pagos registrados.</div>'}
- <div class="actions"><button class="primary" onclick="newClient()">＋ Nuevo cliente</button><button class="outline" onclick="page='collection';render()">💰 Cobranza</button></div>`;
-}
 
-function collection(){
- const d=getCollectionData();
- let arr=collectionFilter==='overdue'?d.overdue:collectionFilter==='today'?d.dueToday:collectionFilter==='upcoming'?d.upcoming:d.overdue.concat(d.dueToday);
- const pending=arr.reduce((s,c)=>s+(Number(c.cantidad_pago)||0),0);
- return `<h2>💰 Cobranza</h2>
- <div class="card"><small>Total pendiente mostrado</small><div class="collection-total">${money(pending)}</div><small>${arr.length} cliente(s)</small></div>
- <div class="collection-tabs">
-  <button class="${collectionFilter==='all'?'primary':'outline'}" onclick="setCollection('all')">🔴 Pendientes</button>
-  <button class="${collectionFilter==='overdue'?'primary':'outline'}" onclick="setCollection('overdue')">Vencidos (${d.overdue.length})</button>
-  <button class="${collectionFilter==='today'?'primary':'outline'}" onclick="setCollection('today')">Hoy (${d.dueToday.length})</button>
-  <button class="${collectionFilter==='upcoming'?'primary':'outline'}" onclick="setCollection('upcoming')">Próximos (${d.upcoming.length})</button>
+ const today=localToday();
+ const month=today.slice(0,7);
+
+ const paidToday=payments
+  .filter(p=>String(p.fecha_pago).slice(0,10)===today)
+  .reduce((s,p)=>s+(Number(p.cantidad)||0),0);
+
+ const paidMonth=payments
+  .filter(p=>String(p.fecha_pago).slice(0,7)===month)
+  .reduce((s,p)=>s+(Number(p.cantidad)||0),0);
+
+ const overdue=clients.filter(c=>
+   c.proximo_pago &&
+   String(c.proximo_pago).slice(0,10)<today
+ );
+
+ const dueToday=clients.filter(c=>
+   c.proximo_pago &&
+   String(c.proximo_pago).slice(0,10)===today
+ );
+
+ const upcoming=clients
+  .filter(c=>c.proximo_pago && String(c.proximo_pago).slice(0,10)>today)
+  .sort((a,b)=>String(a.proximo_pago).localeCompare(String(b.proximo_pago)))
+  .slice(0,5);
+
+ return `
+ <h2>🏠 Resumen</h2>
+
+ <div class="stats">
+  <div class="stat">👥<small>Clientes</small><b>${clients.length}</b></div>
+  <div class="stat">💵<small>Cobrado hoy</small><b>${money(paidToday)}</b></div>
+  <div class="stat">📆<small>Cobrado este mes</small><b>${money(paidMonth)}</b></div>
+  <div class="stat">🔴<small>Pagos vencidos</small><b>${overdue.length}</b></div>
  </div>
- ${arr.length?arr.map(c=>collectionCard(c,d.today)).join(''):`<div class="card greenbox">✅ No hay clientes en esta categoría.</div>`}
- <div class="card"><small>El monto pendiente se calcula con la cantidad de pago registrada en cada cliente. Al registrar un pago, el historial se actualiza automáticamente.</small></div>`;
+
+ <div class="sectiontitle"><h3>⚠️ Atención</h3></div>
+
+ ${
+ overdue.length
+ ? `<div class="card dangerbox">
+     <b>${overdue.length} cliente(s) con pago vencido</b>
+     ${overdue.slice(0,5).map(c=>`
+       <p style="margin:8px 0">
+        <button class="outline" onclick="openClient('${c.id}')">
+         ${esc(c.nombre)} · ${date(c.proximo_pago)}
+        </button>
+       </p>`).join('')}
+     ${overdue.length>5?'<small>Se muestran los primeros 5.</small>':''}
+    </div>`
+ : `<div class="card greenbox">✅ No hay pagos vencidos.</div>`
+ }
+
+ ${
+ dueToday.length
+ ? `<div class="card alert">
+     <b>🟠 ${dueToday.length} pago(s) vencen hoy</b>
+     ${dueToday.map(c=>`
+      <p style="margin:8px 0">
+       <button class="outline" onclick="openClient('${c.id}')">
+        ${esc(c.nombre)} · ${money(c.cantidad_pago)}
+       </button>
+      </p>`).join('')}
+    </div>`
+ : ''
+ }
+
+ <div class="sectiontitle">
+  <h3>📅 Próximos pagos</h3>
+  <button class="outline" onclick="page='clients';render()">Ver clientes</button>
+ </div>
+
+ ${
+ upcoming.length
+ ? upcoming.map(c=>`
+    <div class="card" onclick="openClient('${c.id}')">
+     <b>${esc(c.nombre)}</b><br>
+     📅 ${date(c.proximo_pago)} · ${money(c.cantidad_pago)}
+    </div>`).join('')
+ : '<div class="card">No hay próximos pagos registrados.</div>'
+ }
+
+ <div class="actions">
+  <button class="primary" onclick="newClient()">＋ Nuevo cliente</button>
+  <button class="outline" onclick="page='clients';render()">👥 Ver clientes</button>
+ </div>
+ `;
 }
-function setCollection(f){collectionFilter=f;render()}
-function collectionCard(c,today){
- const p=String(c.proximo_pago||'').slice(0,10);
- const overdue=p&&p<today, todayDue=p===today;
- const badge=overdue?'<span class="badge red">VENCIDO</span>':todayDue?'<span class="badge orange">VENCE HOY</span>':'<span class="badge green">PRÓXIMO</span>';
- return `<div class="card"><div class="clientline"><div><b>${esc(c.nombre)}</b><br><small>Cuenta #${esc(c.numero_cuenta)}</small></div>${badge}</div>
- <p style="margin:10px 0">📅 ${date(c.proximo_pago)} · <b>${money(c.cantidad_pago)}</b></p>
- <div class="actions"><button class="primary" onclick="openClient('${c.id}')">👤 Ver cliente</button>${c.latitud!=null&&c.longitud!=null?`<button class="outline locationbtn" onclick="openMap(${Number(c.latitud)},${Number(c.longitud)})">📍 Ubicación</button>`:'<button class="outline" onclick="editFromCollection('${c.id}')">📍 Agregar GPS</button>'}</div>
- </div>`;
-}
-function editFromCollection(id){selected=id;editClient()}
 
 function list(){
- if(!clients.length)return `<h2>Clientes</h2><div class="card" style="text-align:center">No hay clientes registrados.</div><button class="primary" onclick="newClient()">＋ Agregar cliente</button>`;
- return `<h2>Clientes</h2><input placeholder="🔎 Buscar..." oninput="filter(this.value)"><div id="list">${cards(clients)}</div>`;
+
+ if(!clients.length)
+ return `
+ <h2>Clientes</h2>
+ <div class="card" style="text-align:center">No hay clientes registrados.</div>
+ <button class="primary" onclick="newClient()">＋ Agregar cliente</button>`;
+
+ return `
+ <h2>Clientes</h2>
+ <input placeholder="🔎 Buscar..." oninput="filter(this.value)">
+ <div id="list">${cards(clients)}</div>`;
 }
-function cards(arr){return arr.map(c=>`<div class="card" onclick="openClient('${c.id}')"><div class="row"><div id="p-${c.id}" class="avatar">👤</div><div class="grow"><b>${esc(c.nombre)}</b><br><small>Cuenta #${esc(c.numero_cuenta)}</small><br>${money(c.cantidad_pago)} · Próx. ${date(c.proximo_pago)}${c.latitud!=null&&c.longitud!=null?'<br>📍 Ubicación guardada':''}</div></div></div>`).join('')}
-function filter(q){$('list').innerHTML=cards(clients.filter(c=>(c.nombre+' '+c.numero_cuenta+' '+(c.telefono||'')).toLowerCase().includes(q.toLowerCase())));loadPhotos()}
-async function loadPhotos(){for(const c of clients){if(!c.foto_url)continue;const u=await signed(c.foto_url);const e=$('p-'+c.id);if(e&&u)e.innerHTML=`<img class="avatar" src="${u}">`}}
-function openClient(id){selected=id;page='detail';render()}
-async function loadDetailPhoto(){const c=clients.find(x=>x.id===selected);if(!c?.foto_url)return;const u=await signed(c.foto_url);const e=$('detailPhoto');if(e&&u)e.src=u}
+
+function cards(arr){
+ return arr.map(c=>`
+ <div class="card" onclick="openClient('${c.id}')">
+  <div class="row">
+   <div id="p-${c.id}" class="avatar">👤</div>
+   <div class="grow">
+    <b>${esc(c.nombre)}</b><br>
+    <small>Cuenta #${esc(c.numero_cuenta)}</small><br>
+    ${money(c.cantidad_pago)} · Próx. ${date(c.proximo_pago)}
+    ${c.latitud!=null&&c.longitud!=null?'<br>📍 Ubicación guardada':''}
+   </div>
+  </div>
+ </div>`).join('');
+}
+
+function filter(q){
+ $('list').innerHTML=cards(
+  clients.filter(c=>
+   (c.nombre+' '+c.numero_cuenta+' '+(c.telefono||''))
+   .toLowerCase().includes(q.toLowerCase())
+  )
+ );
+ loadPhotos();
+}
+
+async function loadPhotos(){
+ for(const c of clients){
+  if(!c.foto_url)continue;
+  const u=await signed(c.foto_url);
+  const e=$('p-'+c.id);
+  if(e&&u)e.innerHTML=`<img class="avatar" src="${u}">`;
+ }
+}
+
+function openClient(id){
+ selected=id;
+ page='detail';
+ render();
+}
+
+async function loadDetailPhoto(){
+ const c=clients.find(x=>x.id===selected);
+ if(!c?.foto_url)return;
+
+ const u=await signed(c.foto_url);
+ const e=$('detailPhoto');
+
+ if(e&&u)e.src=u;
+}
 
 function form(){
- const c=clients.find(x=>x.id===selected)||{};selectedLat=c.latitud??null;selectedLng=c.longitud??null;
- return `<button class="outline" onclick="page='clients';render()">← Clientes</button><h2>${selected?'Editar':'Nuevo'} cliente</h2>
- <label>Número de cuenta *</label><input id="account" value="${esc(c.numero_cuenta)}">
- <label>Nombre *</label><input id="name" value="${esc(c.nombre)}">
- <label>Contacto</label><input id="phone" type="tel" value="${esc(c.telefono)}">
- <label>Cantidad de pago *</label><input id="amount" type="number" step="0.01" value="${c.cantidad_pago??''}">
- <label>Frecuencia</label><select id="freq"><option ${c.frecuencia_pago==='Semanal'?'selected':''}>Semanal</option><option ${c.frecuencia_pago==='Quincenal'?'selected':''}>Quincenal</option><option ${!c.frecuencia_pago||c.frecuencia_pago==='Mensual'?'selected':''}>Mensual</option></select>
- <label>Próximo pago</label><input id="next" type="date" value="${String(c.proximo_pago||'').slice(0,10)}">
- <div class="card"><b>📍 Ubicación del cliente</b><div class="mapnote">Obtén GPS o toca el mapa. El marcador se puede arrastrar.</div><div class="actions"><button class="primary" onclick="getGPS()">📍 Obtener GPS</button><button class="outline" onclick="clearLocation()">🗑️ Quitar</button></div><div id="map"></div><div id="coords" class="mapnote">Sin ubicación seleccionada.</div></div>
- <div class="card"><b>Fotografía</b><div class="actions"><label class="primary filebtn">📷 Tomar foto<input id="cam" type="file" accept="image/*" capture="environment" onchange="pickPhoto(this)"></label><label class="outline filebtn">🖼️ Galería<input id="gal" type="file" accept="image/*" onchange="pickPhoto(this)"></label></div><div id="preview">${c.foto_url?'<small>Fotografía actual guardada.</small>':''}</div></div>
- <label>Notas</label><textarea id="notes">${esc(c.notas)}</textarea>
- <div class="actions"><button class="primary" onclick="saveClient()">💾 Guardar</button><button class="outline" onclick="page='clients';render()">Cancelar</button></div>`;
+
+ const c=clients.find(x=>x.id===selected)||{};
+
+ selectedLat=c.latitud??null;
+ selectedLng=c.longitud??null;
+
+ return `
+ <button class="outline" onclick="page='clients';render()">← Clientes</button>
+ <h2>${selected?'Editar':'Nuevo'} cliente</h2>
+
+ <label>Número de cuenta *</label>
+ <input id="account" value="${esc(c.numero_cuenta)}">
+
+ <label>Nombre *</label>
+ <input id="name" value="${esc(c.nombre)}">
+
+ <label>Contacto</label>
+ <input id="phone" type="tel" value="${esc(c.telefono)}">
+
+ <label>Cantidad de pago *</label>
+ <input id="amount" type="number" step="0.01" value="${c.cantidad_pago??''}">
+
+ <label>Frecuencia</label>
+ <select id="freq">
+  <option ${c.frecuencia_pago==='Semanal'?'selected':''}>Semanal</option>
+  <option ${c.frecuencia_pago==='Quincenal'?'selected':''}>Quincenal</option>
+  <option ${!c.frecuencia_pago||c.frecuencia_pago==='Mensual'?'selected':''}>Mensual</option>
+ </select>
+
+ <label>Próximo pago</label>
+ <input id="next" type="date" value="${String(c.proximo_pago||'').slice(0,10)}">
+
+ <div class="card">
+  <b>📍 Ubicación del cliente</b>
+  <div class="mapnote">Obtén GPS o toca el mapa. El marcador se puede arrastrar.</div>
+
+  <div class="actions">
+   <button class="primary" onclick="getGPS()">📍 Obtener GPS</button>
+   <button class="outline" onclick="clearLocation()">🗑️ Quitar</button>
+  </div>
+
+  <div id="map"></div>
+  <div id="coords" class="mapnote">Sin ubicación seleccionada.</div>
+ </div>
+
+ <div class="card">
+  <b>Fotografía</b>
+
+  <div class="actions">
+   <label class="primary filebtn">
+    📷 Tomar foto
+    <input id="cam" type="file" accept="image/*" capture="environment" onchange="pickPhoto(this)">
+   </label>
+
+   <label class="outline filebtn">
+    🖼️ Galería
+    <input id="gal" type="file" accept="image/*" onchange="pickPhoto(this)">
+   </label>
+  </div>
+
+  <div id="preview">
+   ${c.foto_url?'<small>Fotografía actual guardada.</small>':''}
+  </div>
+ </div>
+
+ <label>Notas</label>
+ <textarea id="notes">${esc(c.notas)}</textarea>
+
+ <div class="actions">
+  <button class="primary" onclick="saveClient()">💾 Guardar</button>
+  <button class="outline" onclick="page='clients';render()">Cancelar</button>
+ </div>
+ `;
 }
+
 function initMap(){
- if(!window.L)return;const el=$('map');if(!el)return;
- const lat=Number(selectedLat),lng=Number(selectedLng),has=Number.isFinite(lat)&&Number.isFinite(lng);
- map=L.map('map').setView(has?[lat,lng]:[19.4326,-99.1332],has?16:5);
- L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+
+ if(!window.L)return;
+
+ const el=$('map');
+ if(!el)return;
+
+ const lat=Number(selectedLat);
+ const lng=Number(selectedLng);
+ const has=Number.isFinite(lat)&&Number.isFinite(lng);
+
+ map=L.map('map').setView(
+   has?[lat,lng]:[19.4326,-99.1332],
+   has?16:5
+ );
+
+ L.tileLayer(
+  'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  {maxZoom:19,attribution:'© OpenStreetMap'}
+ ).addTo(map);
+
  if(has)setMarker(lat,lng,false);
- map.on('click',e=>setMarker(e.latlng.lat,e.latlng.lng,true));updateCoords();
+
+ map.on('click',e=>{
+   setMarker(e.latlng.lat,e.latlng.lng,true);
+ });
+
+ updateCoords();
 }
+
 function setMarker(lat,lng,move=true){
- selectedLat=Number(lat);selectedLng=Number(lng);if(!map)return;
- if(mapMarker)mapMarker.setLatLng([selectedLat,selectedLng]);
- else{mapMarker=L.marker([selectedLat,selectedLng],{draggable:true}).addTo(map)}
- mapMarker.off('dragend').on('dragend',()=>{const p=mapMarker.getLatLng();selectedLat=p.lat;selectedLng=p.lng;updateCoords()});
- if(move)map.setView([selectedLat,selectedLng],17);updateCoords();
-}
-function updateCoords(){const e=$('coords');if(!e)return;e.innerHTML=selectedLat!=null&&selectedLng!=null?`📍 Ubicación seleccionada<br>Latitud: ${Number(selectedLat).toFixed(6)} · Longitud: ${Number(selectedLng).toFixed(6)}`:'Sin ubicación seleccionada.'}
-function getGPS(){
- if(!navigator.geolocation)return message('Este dispositivo no permite obtener GPS desde el navegador.');
- navigator.geolocation.getCurrentPosition(pos=>setMarker(pos.coords.latitude,pos.coords.longitude,true),err=>{const m={1:'Permiso de ubicación denegado. Activa la ubicación para Chrome.',2:'No se pudo obtener la ubicación. Intenta nuevamente.',3:'La solicitud de ubicación tardó demasiado. Intenta nuevamente.'};message(m[err.code]||'No se pudo obtener la ubicación.')},{enableHighAccuracy:true,timeout:15000,maximumAge:0});
-}
-function clearLocation(){selectedLat=null;selectedLng=null;if(mapMarker&&map){map.removeLayer(mapMarker);mapMarker=null}updateCoords()}
-function pickPhoto(i){photoFile=i.files?.[0]||null;if(photoFile){const u=window.URL.createObjectURL(photoFile);$('preview').innerHTML=`<img class="photo" src="${u}">`}}
-async function saveClient(){
- const p={user_id:session.user.id,numero_cuenta:$('account').value.trim(),nombre:$('name').value.trim(),telefono:$('phone').value.trim(),cantidad_pago:Number($('amount').value),frecuencia_pago:$('freq').value,proximo_pago:$('next').value||null,latitud:selectedLat,longitud:selectedLng,notas:$('notes').value};
- if(!p.numero_cuenta||!p.nombre||!Number.isFinite(p.cantidad_pago))return message('Completa cuenta, nombre y cantidad.');
- let r=selected?await db.from('clientes').update(p).eq('id',selected).eq('user_id',session.user.id).select().single():await db.from('clientes').insert(p).select().single();
- if(r.error)return message(r.error.message);const id=r.data.id;
- if(photoFile){
-  const ext=(photoFile.name.split('.').pop()||'jpg').replace(/[^a-z0-9]/gi,'')||'jpg';
-  const path=`${session.user.id}/${id}/${crypto.randomUUID()}.${ext}`;
-  const u=await db.storage.from(BUCKET).upload(path,photoFile,{contentType:photoFile.type||'image/jpeg',upsert:false});
-  if(u.error)return message('Cliente guardado, pero foto: '+u.error.message);
-  const x=await db.from('clientes').update({foto_url:path}).eq('id',id).eq('user_id',session.user.id);if(x.error)return message(x.error.message);
+
+ selectedLat=Number(lat);
+ selectedLng=Number(lng);
+
+ if(!map)return;
+
+ if(mapMarker)
+   mapMarker.setLatLng([selectedLat,selectedLng]);
+ else{
+   mapMarker=L.marker(
+    [selectedLat,selectedLng],
+    {draggable:true}
+   ).addTo(map);
  }
- await load();selected=id;photoFile=null;page='detail';render();message('Cliente guardado correctamente en Supabase.');
+
+ mapMarker.off('dragend').on('dragend',()=>{
+   const p=mapMarker.getLatLng();
+   selectedLat=p.lat;
+   selectedLng=p.lng;
+   updateCoords();
+ });
+
+ if(move)map.setView([selectedLat,selectedLng],17);
+
+ updateCoords();
 }
-function detail(){
- const c=clients.find(x=>x.id===selected);if(!c)return `<p>Cliente no encontrado.</p>`;
- const ps=payments.filter(p=>p.cliente_id===c.id).sort((a,b)=>String(b.fecha_pago).localeCompare(String(a.fecha_pago)));
- const total=ps.reduce((s,p)=>s+(Number(p.cantidad)||0),0);
- return `<button class="outline" onclick="page='clients';render()">← Clientes</button><div class="card"><h2>${esc(c.nombre)}</h2><p><b>Cuenta:</b> ${esc(c.numero_cuenta)}</p><p>📞 ${esc(c.telefono||'—')}</p><p>💰 ${money(c.cantidad_pago)} · ${esc(c.frecuencia_pago||'')}</p><p>📅 Próximo pago: <b>${date(c.proximo_pago)}</b></p><p>📍 ${c.latitud!=null&&c.longitud!=null?'Ubicación guardada':'Sin ubicación'}</p>${c.latitud!=null&&c.longitud!=null?`<button class="outline" onclick="openMap(${Number(c.latitud)},${Number(c.longitud)})">🗺️ Ver ubicación en mapa</button>`:''}${c.foto_url?'<img id="detailPhoto" class="photo">':''}<p>${esc(c.notas||'')}</p><div class="actions"><button class="outline" onclick="editClient()">✏️ Editar</button><button class="primary" onclick="page='payments';render()">💵 Registrar pago</button></div></div><div class="card"><h3>💳 Historial de pagos</h3><p><b>${ps.length}</b> pago(s) · <b>${money(total)}</b> acumulado</p>${ps.length?ps.map(p=>`<div class="payment"><b>${date(p.fecha_pago)} — ${money(p.cantidad)}</b><br><small>💳 ${esc(p.metodo_pago||'Sin método')}</small>${p.notas?`<br><small>📝 ${esc(p.notas)}</small>`:''}</div>`).join(''):'<div class="mapnote">No hay pagos registrados.</div>'}</div>`;
+
+function updateCoords(){
+
+ const e=$('coords');
+ if(!e)return;
+
+ e.innerHTML=
+ selectedLat!=null&&selectedLng!=null
+ ? `📍 Ubicación seleccionada<br>
+    Latitud: ${Number(selectedLat).toFixed(6)} ·
+    Longitud: ${Number(selectedLng).toFixed(6)}`
+ : 'Sin ubicación seleccionada.';
 }
-function openMap(lat,lng){window.open('https://www.google.com/maps?q='+encodeURIComponent(lat+','+lng),'_blank')}
-function payForm(){
- const c=clients.find(x=>x.id===selected);
- return `<button class="outline" onclick="page='detail';render()">← Regresar</button><h2>Registrar pago</h2><div class="card"><b>${esc(c.nombre)}</b><br>Cuenta #${esc(c.numero_cuenta)}</div><label>Fecha</label><input id="pd" type="date" value="${localToday()}"><label>Monto</label><input id="pa" type="number" step="0.01" value="${c.cantidad_pago}"><label>Método</label><select id="pm"><option>Efectivo</option><option>Transferencia</option><option>Depósito</option><option>Otro</option></select><label>Notas</label><textarea id="pn"></textarea><button class="primary" style="width:100%" onclick="savePayment()">💾 Guardar pago</button>`;
+
+function getGPS(){
+
+ if(!navigator.geolocation)
+   return message('Este dispositivo no permite obtener GPS desde el navegador.');
+
+ navigator.geolocation.getCurrentPosition(
+  pos=>{
+   setMarker(
+    pos.coords.latitude,
+    pos.coords.longitude,
+    true
+   );
+  },
+  err=>{
+   const m={
+    1:'Permiso de ubicación denegado. Activa la ubicación para Chrome.',
+    2:'No se pudo obtener la ubicación. Intenta nuevamente.',
+    3:'La solicitud de ubicación tardó demasiado. Intenta nuevamente.'
+   };
+   message(m[err.code]||'No se pudo obtener la ubicación.');
+  },
+  {
+   enableHighAccuracy:true,
+   timeout:15000,
+   maximumAge:0
+  }
+ );
 }
-async function savePayment(){
- const c=clients.find(x=>x.id===selected),amount=Number($('pa').value);
- if(!Number.isFinite(amount)||amount<=0)return message('Escribe un monto válido.');
- const r=await db.from('pagos').insert({user_id:session.user.id,cliente_id:c.id,cantidad:amount,fecha_pago:$('pd').value,metodo_pago:$('pm').value,notas:$('pn').value});
+
+function clearLocation(){
+
+ selectedLat=null;
+ selectedLng=null;
+
+ if(mapMarker&&map){
+  map.removeLayer(mapMarker);
+  mapMarker=null;
+ }
+
+ updateCoords();
+}
+
+function pickPhoto(i){
+
+ photoFile=i.files?.[0]||null;
+
+ if(photoFile){
+  const u=window.URL.createObjectURL(photoFile);
+  $('preview').innerHTML=`<img class="photo" src="${u}">`;
+ }
+}
+
+async function saveClient(){
+
+ const p={
+  user_id:session.user.id,
+  numero_cuenta:$('account').value.trim(),
+  nombre:$('name').value.trim(),
+  telefono:$('phone').value.trim(),
+  cantidad_pago:Number($('amount').value),
+  frecuencia_pago:$('freq').value,
+  proximo_pago:$('next').value||null,
+  latitud:selectedLat,
+  longitud:selectedLng,
+  notas:$('notes').value
+ };
+
+ if(!p.numero_cuenta||!p.nombre||!Number.isFinite(p.cantidad_pago))
+   return message('Completa cuenta, nombre y cantidad.');
+
+ let r=selected
+  ? await db.from('clientes')
+      .update(p)
+      .eq('id',selected)
+      .eq('user_id',session.user.id)
+      .select()
+      .single()
+  : await db.from('clientes')
+      .insert(p)
+      .select()
+      .single();
+
  if(r.error)return message(r.error.message);
- await load();page='detail';render();message('Pago guardado correctamente en Supabase.');
+
+ const id=r.data.id;
+
+ if(photoFile){
+
+  const ext=(photoFile.name.split('.').pop()||'jpg')
+    .replace(/[^a-z0-9]/gi,'')||'jpg';
+
+  const path=
+   `${session.user.id}/${id}/${crypto.randomUUID()}.${ext}`;
+
+  const u=await db.storage.from(BUCKET).upload(
+   path,
+   photoFile,
+   {
+    contentType:photoFile.type||'image/jpeg',
+    upsert:false
+   }
+  );
+
+  if(u.error)
+   return message('Cliente guardado, pero foto: '+u.error.message);
+
+  const x=await db.from('clientes')
+   .update({foto_url:path})
+   .eq('id',id)
+   .eq('user_id',session.user.id);
+
+  if(x.error)return message(x.error.message);
+ }
+
+ await load();
+
+ selected=id;
+ photoFile=null;
+ page='detail';
+ render();
+
+ message('Cliente guardado correctamente en Supabase.');
 }
+
+function detail(){
+
+ const c=clients.find(x=>x.id===selected);
+
+ if(!c)
+   return `<p>Cliente no encontrado.</p>`;
+
+ const ps=payments
+  .filter(p=>p.cliente_id===c.id)
+  .sort((a,b)=>String(b.fecha_pago).localeCompare(String(a.fecha_pago)));
+
+ const total=ps.reduce((s,p)=>s+(Number(p.cantidad)||0),0);
+
+ return `
+ <button class="outline" onclick="page='clients';render()">← Clientes</button>
+
+ <div class="card">
+  <h2>${esc(c.nombre)}</h2>
+  <p><b>Cuenta:</b> ${esc(c.numero_cuenta)}</p>
+  <p>📞 ${esc(c.telefono||'—')}</p>
+  <p>💰 ${money(c.cantidad_pago)} · ${esc(c.frecuencia_pago||'')}</p>
+  <p>📅 Próximo pago: <b>${date(c.proximo_pago)}</b></p>
+
+  <p>
+   📍 ${
+    c.latitud!=null&&c.longitud!=null
+    ? 'Ubicación guardada'
+    : 'Sin ubicación'
+   }
+  </p>
+
+  ${
+   c.latitud!=null&&c.longitud!=null
+   ? `<button class="outline" onclick="openMap(${Number(c.latitud)},${Number(c.longitud)})">
+       🗺️ Ver ubicación en mapa
+      </button>`
+   : ''
+  }
+
+  ${c.foto_url?'<img id="detailPhoto" class="photo">':''}
+
+  <p>${esc(c.notas||'')}</p>
+
+  <div class="actions">
+   <button class="outline" onclick="editClient()">✏️ Editar</button>
+   <button class="primary" onclick="page='payments';render()">💵 Registrar pago</button>
+  </div>
+ </div>
+
+ <div class="card">
+  <h3>💳 Historial de pagos</h3>
+  <p><b>${ps.length}</b> pago(s) · <b>${money(total)}</b> acumulado</p>
+
+  ${
+   ps.length
+   ? ps.map(p=>`
+      <div class="payment">
+       <b>${date(p.fecha_pago)} — ${money(p.cantidad)}</b><br>
+       <small>💳 ${esc(p.metodo_pago||'Sin método')}</small>
+       ${p.notas?`<br><small>📝 ${esc(p.notas)}</small>`:''}
+      </div>`).join('')
+   : '<div class="mapnote">No hay pagos registrados.</div>'
+  }
+ </div>
+ `;
+}
+
+function openMap(lat,lng){
+ window.open(
+  'https://www.google.com/maps?q='+encodeURIComponent(lat+','+lng),
+  '_blank'
+ );
+}
+
+function payForm(){
+
+ const c=clients.find(x=>x.id===selected);
+
+ return `
+ <button class="outline" onclick="page='detail';render()">← Regresar</button>
+ <h2>Registrar pago</h2>
+
+ <div class="card">
+  <b>${esc(c.nombre)}</b><br>
+  Cuenta #${esc(c.numero_cuenta)}
+ </div>
+
+ <label>Fecha</label>
+ <input id="pd" type="date" value="${localToday()}">
+
+ <label>Monto</label>
+ <input id="pa" type="number" step="0.01" value="${c.cantidad_pago}">
+
+ <label>Método</label>
+ <select id="pm">
+  <option>Efectivo</option>
+  <option>Transferencia</option>
+  <option>Depósito</option>
+  <option>Otro</option>
+ </select>
+
+ <label>Notas</label>
+ <textarea id="pn"></textarea>
+
+ <button class="primary" style="width:100%" onclick="savePayment()">
+  💾 Guardar pago
+ </button>
+ `;
+}
+
+async function savePayment(){
+
+ const c=clients.find(x=>x.id===selected);
+ const amount=Number($('pa').value);
+
+ if(!Number.isFinite(amount)||amount<=0)
+   return message('Escribe un monto válido.');
+
+ const r=await db.from('pagos').insert({
+  user_id:session.user.id,
+  cliente_id:c.id,
+  cantidad:amount,
+  fecha_pago:$('pd').value,
+  metodo_pago:$('pm').value,
+  notas:$('pn').value
+ });
+
+ if(r.error)return message(r.error.message);
+
+ await load();
+
+ page='detail';
+ render();
+
+ message('Pago guardado correctamente en Supabase.');
+}
+
 function history(){
- const c=clients.find(x=>x.id===selected),ps=payments.filter(p=>p.cliente_id===c.id);
- return `<button class="outline" onclick="page='detail';render()">← Regresar</button><h2>Historial de pagos</h2>${ps.length?ps.map(p=>`<div class="card">${date(p.fecha_pago)} — <b>${money(p.cantidad)}</b><br><small>${esc(p.metodo_pago||'')}</small>${p.notas?`<br><small>${esc(p.notas)}</small>`:''}</div>`).join(''):'<div class="card">No hay pagos.</div>'}`;
+
+ const c=clients.find(x=>x.id===selected);
+ const ps=payments.filter(p=>p.cliente_id===c.id);
+
+ return `
+ <button class="outline" onclick="page='detail';render()">← Regresar</button>
+ <h2>Historial de pagos</h2>
+
+ ${
+ ps.length
+ ? ps.map(p=>`
+    <div class="card">
+     ${date(p.fecha_pago)} — <b>${money(p.cantidad)}</b><br>
+     <small>${esc(p.metodo_pago||'')}</small>
+     ${p.notas?`<br><small>${esc(p.notas)}</small>`:''}
+    </div>`).join('')
+ : '<div class="card">No hay pagos.</div>'
+ }
+ `;
 }
 </script>
 </body>
