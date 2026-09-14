@@ -1,11 +1,1 @@
-{
-  "name":"AdminClientes V2",
-  "short_name":"AdminClientes",
-  "start_url":"./index.html",
-  "scope":"./",
-  "display":"standalone",
-  "background_color":"#f4f7f7",
-  "theme_color":"#006b6b",
-  "lang":"es-MX",
-  "description":"Administración de clientes, pagos, fotografías, ubicaciones y sincronización en la nube."
-}
+{"name":"AdminClientes","short_name":"AdminClientes","start_url":"./index.html","display":"standalone","background_color":"#f4f7f7","theme_color":"#006b6b","icons":[]}
