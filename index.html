@@ -19,7 +19,8 @@ const URL='https://dwijfgznbzhuhrdrwdri.supabase.co';
 const KEY='sb_publishable_aD4TGdGO5zxuPL8wld_PMQ_EWFuvA9Z';
 const db=window.supabase.createClient(URL,KEY);
 const BUCKET='Fotos-clientes';
-let session=null,clients=[],payments=[],page='login',selected=null,photoFile=null;
+let session=null,clients=[],payments=[],page='login',selected=null,photoFile=null,bootError='';
+document.addEventListener('DOMContentLoaded',()=>{render(); start().catch(e=>{bootError=e?.message||String(e); page='error'; render();});});
 
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format(Number(n)||0);
@@ -34,14 +35,23 @@ async function load(){
 }
 async function signed(path){if(!path)return'';const r=await db.storage.from(BUCKET).createSignedUrl(path,3600);return r.data?.signedUrl||''}
 async function start(){
- const r=await db.auth.getSession();session=r.data.session;
- if(session){try{await load();page='clients'}catch(e){page='error';window.__err=e.message}}
- render();
- db.auth.onAuthStateChange((_e,s)=>{session=s;if(!s){page='login';render()}});
+ if(!window.supabase) throw new Error('No se pudo cargar la librería de Supabase. Comprueba tu conexión a Internet y vuelve a cargar la página.');
+ const r=await db.auth.getSession();
+ if(r.error) throw r.error;
+ session=r.data.session;
+ if(session){
+   try{await load();page='clients';render();}
+   catch(e){bootError=e?.message||String(e);page='error';render();}
+ }
+ db.auth.onAuthStateChange(async (_e,s)=>{
+   session=s;
+   if(!s){page='login';render();}
+   else{try{await load();page='clients';render();}catch(e){bootError=e?.message||String(e);page='error';render();}}
+ });
 }
 function render(){
  if(page==='login'){ $('root').innerHTML=`<div class="login"><div class="card"><h1>👥 AdminClientes</h1><p>Inicia sesión para sincronizar tus clientes.</p><label>Correo</label><input id="email" type="email"><label>Contraseña</label><input id="pass" type="password"><button class="primary" style="width:100%" onclick="login()">Iniciar sesión</button></div></div>`;return}
- if(page==='error'){$('root').innerHTML=`<div class="app"><header>AdminClientes</header><main><div class="error"><b>Error al cargar:</b><br>${esc(window.__err||'Error desconocido')}</div><button class="outline" onclick="location.reload()">Reintentar</button></main></div>`;return}
+ if(page==='error'){$('root').innerHTML=`<div class="app"><header>AdminClientes</header><main><div class="error"><b>Error al cargar:</b><br>${esc(bootError||'Error desconocido')}</div><button class="outline" onclick="location.reload()">Reintentar</button></main></div>`;return}
  let body=page==='clients'?list():page==='form'?form():page==='detail'?detail():page==='payments'?payForm():history();
  $('root').innerHTML=`<div class="app"><header>AdminClientes</header><main>${body}</main><div class="nav"><button onclick="page='clients';render()">👥 Clientes</button><button onclick="newClient()">＋ Nuevo</button><button onclick="logout()">↪ Salir</button></div></div>`;
  if(page==='clients')loadPhotos();
@@ -88,5 +98,4 @@ function detail(){const c=clients.find(x=>x.id===selected);if(!c)return `<p>Clie
 function payForm(){const c=clients.find(x=>x.id===selected);return `<button class="outline" onclick="page='detail';render()">← Regresar</button><h2>Registrar pago</h2><div class="card"><b>${esc(c.nombre)}</b><br>Cuenta #${esc(c.numero_cuenta)}</div><label>Fecha</label><input id="pd" type="date" value="${new Date().toISOString().slice(0,10)}"><label>Monto</label><input id="pa" type="number" step="0.01" value="${c.cantidad_pago}"><label>Método</label><select id="pm"><option>Efectivo</option><option>Transferencia</option><option>Depósito</option><option>Otro</option></select><label>Notas</label><textarea id="pn"></textarea><button class="primary" style="width:100%" onclick="savePayment()">Guardar pago</button>`}
 async function savePayment(){const c=clients.find(x=>x.id===selected);const r=await db.from('pagos').insert({user_id:session.user.id,cliente_id:c.id,cantidad:Number($('pa').value),fecha_pago:$('pd').value,metodo_pago:$('pm').value,notas:$('pn').value});if(r.error)return message(r.error.message);await load();page='detail';render();message('Pago guardado.')}
 function history(){const c=clients.find(x=>x.id===selected),ps=payments.filter(p=>p.cliente_id===c.id);return `<button class="outline" onclick="page='detail';render()">← Regresar</button><h2>Historial</h2>${ps.length?ps.map(p=>`<div class="card">${date(p.fecha_pago)} — <b>${money(p.cantidad)}</b><br><small>${esc(p.metodo_pago||'')}</small></div>`).join(''):'<div class="card">No hay pagos.</div>'}`}
-start();
 </script></body></html>
