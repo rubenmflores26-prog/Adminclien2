@@ -41,6 +41,13 @@ small{color:#687777}.error{background:#ffe9e9;color:#9b1c1c;padding:10px;border-
 .badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:700;background:#e6f3f1;color:#006b6b}
 .badge-danger{background:#ffe9e9;color:#b4232a}.badge-today{background:#fff3d6;color:#9a5b00}
 .total{font-size:25px;font-weight:800;margin-top:5px}
+.print-only{display:none}
+@media print{body{background:white}.nav,button,.no-print{display:none!important}.app{max-width:none;padding:0}.print-only{display:block}.card{border:1px solid #bbb;break-inside:avoid}}
+.toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.map-all{height:460px;border-radius:12px;margin:8px 0}
+.chip{display:inline-block;padding:6px 9px;border-radius:999px;background:#eef4f4;margin:3px;font-size:12px}
+.linkbtn{background:none;border:0;color:#006b6b;padding:0;font-weight:700}
+.report-table{width:100%;border-collapse:collapse;font-size:13px}.report-table th,.report-table td{border-bottom:1px solid #ddd;padding:8px 4px;text-align:left}
 </style>
 </head>
 <body>
@@ -56,7 +63,8 @@ const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 const BUCKET='Fotos-clientes';
 
 let session=null,clients=[],payments=[],page='login',selected=null,photoFile=null;
-let bootError='',selectedLat=null,selectedLng=null,map=null,mapMarker=null;
+let bootError='',selectedLat=null,selectedLng=null,map=null,mapMarker=null,allMap=null,allMapMarkers=[];
+let clientFilterStatus='todos',clientFilterDue='todos';
 
 document.addEventListener('DOMContentLoaded',()=>{
  render();
@@ -125,18 +133,22 @@ function render(){
   page==='detail'?detail():
   page==='payments'?payForm():
   page==='collection'?collection():
+  page==='map'?mapAllPage():
+  page==='reports'?reports():
+  page==='security'?securityPage():
   history();
  $('root').innerHTML=`<div class="app"><header>AdminClientes</header><main>${body}</main>
  <div class="nav">
  <button onclick="page='dashboard';render()">🏠 Inicio</button>
  <button onclick="page='clients';render()">👥 Clientes</button>
  <button onclick="page='collection';render()">💰 Cobranza</button>
- <button onclick="newClient()">＋ Nuevo</button>
- <button onclick="logout()">↪ Salir</button>
+ <button onclick="page='map';render()">🗺️ Mapa</button>
+ <button onclick="moreMenu()">☰ Más</button>
  </div></div>`;
  if(page==='clients')loadPhotos();
  if(page==='detail')loadDetailPhoto();
  if(page==='form')setTimeout(initMap,100);
+ if(page==='map')setTimeout(initAllMap,100);
 }
 
 async function login(){
@@ -177,12 +189,34 @@ function dashboard(){
  ${upcoming.length?upcoming.map(c=>`<div class="card" onclick="openClient('${c.id}')"><b>${esc(c.nombre)}</b><br>📅 ${date(c.proximo_pago)} · ${money(c.cantidad_pago)}</div>`).join(''):
  '<div class="card">No hay próximos pagos registrados.</div>'}
  <div class="actions"><button class="primary" onclick="newClient()">＋ Nuevo cliente</button>
- <button class="outline" onclick="page='collection';render()">💰 Cobranza</button></div>`;
+ <button class="outline" onclick="page='collection';render()">💰 Cobranza</button></div>
+ <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='map';render()">🗺️ Mapa general</button><button class="outline" onclick="page='reports';render()">📄 Reportes</button></div>
+ <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='security';render()">🔐 Seguridad</button><button class="outline" onclick="printDailyTicket()">🧾 Ticket/resumen</button></div>`;
 }
 
 function list(){
  if(!clients.length)return `<h2>Clientes</h2><div class="card" style="text-align:center">No hay clientes registrados.</div><button class="primary" onclick="newClient()">＋ Agregar cliente</button>`;
- return `<h2>Clientes</h2><input placeholder="🔎 Buscar..." oninput="filter(this.value)"><div id="list">${cards(clients)}</div>`;
+ return `<h2>Clientes</h2>
+ <label>🔎 Buscar</label><input id="clientSearch" placeholder="Nombre, cuenta o teléfono..." oninput="filterClientsAdvanced()">
+ <div class="toolbar">
+  <select id="clientStatus" onchange="filterClientsAdvanced()"><option value="todos">Todos</option><option value="ubicados">Con ubicación</option><option value="sinubicacion">Sin ubicación</option></select>
+  <select id="clientDue" onchange="filterClientsAdvanced()"><option value="todos">Todos los pagos</option><option value="vencidos">Vencidos</option><option value="hoy">Vencen hoy</option><option value="proximos">Próximos</option><option value="sinfecha">Sin fecha</option></select>
+ </div>
+ <div class="card"><b>Filtros avanzados</b><div id="clientCount" class="mapnote"></div></div>
+ <div id="list">${cards(clients)}</div>`;
+}
+function filterClientsAdvanced(){
+ const q=($('clientSearch')?.value||'').toLowerCase().trim(), st=$('clientStatus')?.value||'todos', due=$('clientDue')?.value||'todos', today=localToday();
+ const arr=clients.filter(c=>{
+  const text=(c.nombre+' '+c.numero_cuenta+' '+(c.telefono||'')).toLowerCase();
+  if(q&&!text.includes(q))return false;
+  const hasLoc=c.latitud!=null&&c.longitud!=null;
+  if(st==='ubicados'&&!hasLoc)return false;if(st==='sinubicacion'&&hasLoc)return false;
+  const d=c.proximo_pago?String(c.proximo_pago).slice(0,10):'';
+  if(due==='vencidos'&&!(d&&d<today))return false;if(due==='hoy'&&d!==today)return false;if(due==='proximos'&&!(d&&d>today))return false;if(due==='sinfecha'&&d)return false;
+  return true;
+ });
+ $('list').innerHTML=cards(arr);$('clientCount').textContent=`Mostrando ${arr.length} de ${clients.length} cliente(s).`;loadPhotos();
 }
 function cards(arr){
  return arr.map(c=>`<div class="card" onclick="openClient('${c.id}')"><div class="row">
@@ -289,11 +323,57 @@ function detail(){
  <p>📍 ${c.latitud!=null&&c.longitud!=null?'Ubicación guardada':'Sin ubicación'}</p>
  ${c.latitud!=null&&c.longitud!=null?`<button class="outline" onclick="openMap(${Number(c.latitud)},${Number(c.longitud)})">🗺️ Ver ubicación en mapa</button>`:''}
  ${c.foto_url?'<img id="detailPhoto" class="photo">':''}<p>${esc(c.notas||'')}</p>
- <div class="actions"><button class="outline" onclick="editClient()">✏️ Editar</button><button class="primary" onclick="page='payments';render()">💵 Registrar pago</button></div></div>
+ <div class="actions"><button class="outline" onclick="editClient()">✏️ Editar</button><button class="primary" onclick="page='payments';render()">💵 Registrar pago</button></div>
+ <div class="actions" style="margin-top:8px"><button class="outline" onclick="callClient()">📞 Llamar</button><button class="outline" onclick="whatsappClient()">💬 WhatsApp</button></div>
+ <div class="actions" style="margin-top:8px"><button class="outline" onclick="printTicket('${c.id}')">🧾 Imprimir ticket</button><button class="outline" onclick="page='reports';render()">📄 Reporte</button></div></div>
  <div class="card"><h3>💳 Historial de pagos</h3><p><b>${ps.length}</b> pago(s) · <b>${money(total)}</b> acumulado</p>
  ${ps.length?ps.map(p=>`<div class="payment"><b>${date(p.fecha_pago)} — ${money(p.cantidad)}</b><br><small>💳 ${esc(p.metodo_pago||'Sin método')}</small>${p.notas?`<br><small>📝 ${esc(p.notas)}</small>`:''}</div>`).join(''):'<div class="mapnote">No hay pagos registrados.</div>'}</div>`;
 }
 function openMap(lat,lng){window.open('https://www.google.com/maps?q='+encodeURIComponent(lat+','+lng),'_blank')}
+
+function callClient(){
+ const c=clients.find(x=>x.id===selected);if(!c?.telefono)return message('Este cliente no tiene teléfono registrado.');
+ window.location.href='tel:'+String(c.telefono).replace(/[^0-9+]/g,'');
+}
+function whatsappClient(){
+ const c=clients.find(x=>x.id===selected);if(!c?.telefono)return message('Este cliente no tiene teléfono registrado.');
+ const n=String(c.telefono).replace(/\D/g,'');
+ window.open('https://wa.me/'+(n.length===10?'52'+n:n),'_blank');
+}
+function printTicket(id){
+ const c=clients.find(x=>x.id===id), ps=payments.filter(p=>p.cliente_id===id).sort((a,b)=>String(b.fecha_pago).localeCompare(String(a.fecha_pago)));
+ if(!c)return;
+ const last=ps[0];
+ const w=window.open('','_blank','width=420,height=650');if(!w)return message('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes.');
+ w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Ticket ${esc(c.numero_cuenta)}</title><style>body{font-family:Arial,sans-serif;width:72mm;margin:0 auto;padding:8mm 4mm;font-size:13px}h2{text-align:center;margin:0 0 8px}hr{border:0;border-top:1px dashed #777}.big{font-size:20px;font-weight:700;text-align:center;margin:12px 0}.center{text-align:center}.row{display:flex;justify-content:space-between;margin:6px 0}@media print{@page{size:80mm auto;margin:3mm}button{display:none}}</style></head><body><h2>AdminClientes</h2><div class="center">Comprobante de cliente</div><hr><div><b>Cliente:</b> ${esc(c.nombre)}</div><div><b>Cuenta:</b> ${esc(c.numero_cuenta)}</div><div><b>Teléfono:</b> ${esc(c.telefono||'—')}</div><hr>${last?`<div class="big">${money(last.cantidad)}</div><div class="center">Pago recibido</div><div class="row"><span>Fecha</span><b>${date(last.fecha_pago)}</b></div><div class="row"><span>Método</span><b>${esc(last.metodo_pago||'—')}</b></div>${last.notas?`<div><b>Notas:</b> ${esc(last.notas)}</div>`:''}`:`<div class="center">Sin pagos registrados</div>`}<hr><div class="row"><span>Próximo pago</span><b>${date(c.proximo_pago)}</b></div><div class="center" style="margin-top:18px">Gracias</div><script>window.onload=()=>{window.print();setTimeout(()=>window.close(),500)}<\/script></body></html>`);
+ w.document.close();
+}
+function printDailyTicket(){
+ const today=localToday(), ps=payments.filter(p=>String(p.fecha_pago).slice(0,10)===today), total=ps.reduce((s,p)=>s+(Number(p.cantidad)||0),0);
+ const w=window.open('','_blank','width=420,height=650');if(!w)return message('Permite ventanas emergentes para imprimir.');
+ w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Resumen ${date(today)}</title><style>body{font-family:Arial;width:72mm;margin:auto;padding:6mm 4mm;font-size:13px}h2{text-align:center}.row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed #aaa}.total{font-size:20px;font-weight:700;text-align:center;margin:12px}</style></head><body><h2>AdminClientes</h2><div style="text-align:center">Resumen de cobranza<br>${date(today)}</div><hr><div class="row"><span>Pagos</span><b>${ps.length}</b></div><div class="total">${money(total)}</div><div style="text-align:center">Total cobrado hoy</div><script>window.onload=()=>{window.print();setTimeout(()=>window.close(),500)}<\/script></body></html>`);w.document.close();
+}
+
+function mapAllPage(){return `<h2>🗺️ Mapa de clientes</h2><div class="card"><b>${clients.filter(c=>c.latitud!=null&&c.longitud!=null).length}</b> cliente(s) con ubicación guardada.<br><small>Toca un marcador para abrir la ficha.</small></div><div id="allMap" class="map-all"></div><div class="actions"><button class="outline" onclick="page='clients';render()">👥 Clientes</button><button class="outline" onclick="page='dashboard';render()">🏠 Inicio</button></div>`}
+function initAllMap(){
+ if(!window.L)return;const el=$('allMap');if(!el)return;
+ allMap=L.map('allMap').setView([19.4326,-99.1332],5);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(allMap);
+ allMapMarkers=[];const located=clients.filter(c=>Number.isFinite(Number(c.latitud))&&Number.isFinite(Number(c.longitud)));
+ if(!located.length)return;
+ const bounds=[];located.forEach(c=>{const lat=Number(c.latitud),lng=Number(c.longitud);const m=L.marker([lat,lng]).addTo(allMap).bindPopup(`<b>${esc(c.nombre)}</b><br>Cuenta #${esc(c.numero_cuenta)}<br>${money(c.cantidad_pago)}<br><button onclick="openClient('${c.id}')">Abrir cliente</button>`);allMapMarkers.push(m);bounds.push([lat,lng]);});
+ allMap.fitBounds(bounds,{padding:[25,25]});
+}
+function moreMenu(){
+ const choice=prompt('Escribe una opción:\n1 = Reportes\n2 = Seguridad\n3 = Nuevo cliente\n4 = Cerrar sesión');
+ if(choice==='1'){page='reports';render()}else if(choice==='2'){page='security';render()}else if(choice==='3')newClient();else if(choice==='4')logout();
+}
+
+function reports(){
+ const today=localToday(),month=today.slice(0,7), paidMonth=payments.filter(p=>String(p.fecha_pago).slice(0,7)===month), totalMonth=paidMonth.reduce((s,p)=>s+(Number(p.cantidad)||0),0), overdue=clients.filter(c=>c.proximo_pago&&String(c.proximo_pago).slice(0,10)<today);
+ return `<div class="no-print"><button class="outline" onclick="page='dashboard';render()">← Inicio</button></div><h2>📄 Reportes</h2><div class="card no-print"><div class="toolbar"><button class="primary" onclick="window.print()">🖨️ Imprimir reporte</button><button class="outline" onclick="printDailyTicket()">🧾 Ticket del día</button></div></div><div class="card"><h3>Resumen mensual</h3><p><b>${month}</b> · ${paidMonth.length} pago(s) · <b>${money(totalMonth)}</b></p><p>Clientes: <b>${clients.length}</b> · Vencidos: <b>${overdue.length}</b></p></div><div class="card"><h3>Detalle de pagos</h3><table class="report-table"><thead><tr><th>Fecha</th><th>Cliente</th><th>Monto</th><th>Método</th></tr></thead><tbody>${paidMonth.length?paidMonth.map(p=>{const c=clients.find(x=>x.id===p.cliente_id);return `<tr><td>${date(p.fecha_pago)}</td><td>${esc(c?.nombre||'Cliente')}</td><td>${money(p.cantidad)}</td><td>${esc(p.metodo_pago||'')}</td></tr>`}).join(''):'<tr><td colspan="4">No hay pagos en este mes.</td></tr>'}</tbody></table></div>`;
+}
+function securityPage(){return `<button class="outline" onclick="page='dashboard';render()">← Inicio</button><h2>🔐 Seguridad</h2><div class="card"><b>Sesión</b><p>Usuario autenticado: <b>${esc(session?.user?.email||session?.user?.id||'—')}</b></p><span class="badge">Supabase Auth activo</span></div><div class="card"><b>Protección de datos</b><p>La aplicación envía <code>user_id</code> en clientes y pagos y además filtra las consultas por el usuario autenticado.</p><p><b>Importante:</b> la protección real contra acceso entre usuarios depende de las políticas <b>RLS</b> de Supabase. No las modifico automáticamente desde esta pantalla para evitar bloquear los datos existentes.</p><button class="outline" onclick="runSecurityCheck()">🔎 Comprobar conexión y RLS</button><div id="securityResult" class="mapnote" style="margin-top:10px"></div></div><div class="card"><b>Buenas prácticas</b><ul><li>No compartas tu contraseña.</li><li>La clave <i>publishable</i> puede estar en el frontend; RLS debe proteger las tablas.</li><li>Las fotos usan URLs firmadas de corta duración.</li></ul></div>`}
+async function runSecurityCheck(){const e=$('securityResult');if(!e)return;e.textContent='Comprobando...';try{const a=await db.from('clientes').select('id').eq('user_id',session.user.id).limit(1);const b=await db.from('pagos').select('id').eq('user_id',session.user.id).limit(1);if(a.error||b.error)throw(a.error||b.error);e.innerHTML='✅ Conexión correcta. Las consultas de la aplicación están funcionando con el usuario autenticado. Para confirmar aislamiento entre usuarios hay que probar las políticas RLS desde Supabase con otra cuenta.';}catch(err){e.innerHTML='⚠️ '+esc(err.message||String(err));}}
 
 function payForm(){
  const c=clients.find(x=>x.id===selected);
@@ -336,7 +416,7 @@ function collection(){
  <div class="stat">📅<small>Próximos</small><b>${money(upcomingTotal)}</b><small>${upcoming.length} cliente(s)</small></div>
  <div class="stat">✅<small>Cobrado hoy</small><b>${money(paidToday)}</b></div>
  </div>
- <label>🔎 Buscar cliente</label><input id="collectionSearch" placeholder="Nombre, cuenta o teléfono..." oninput="filterCollection(this.value)">
+ <div class="actions"><button class="outline" onclick="page='reports';render()">📄 Reportes</button><button class="outline" onclick="page='map';render()">🗺️ Mapa</button></div><label>🔎 Buscar cliente</label><input id="collectionSearch" placeholder="Nombre, cuenta o teléfono..." oninput="filterCollection(this.value)">
  <div id="collectionList">${collectionCards(overdue,todayList,upcoming)}</div>`;
 }
 
