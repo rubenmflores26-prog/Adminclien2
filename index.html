@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#006b6b">
-<title>AdminClientes V2.3</title>
+<title>AdminClientes V2.4</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
 body{margin:0;font-family:system-ui;background:#f4f7f7;color:#173232}
@@ -48,6 +48,11 @@ small{color:#687777}.error{background:#ffe9e9;color:#9b1c1c;padding:10px;border-
 .chip{display:inline-block;padding:6px 9px;border-radius:999px;background:#eef4f4;margin:3px;font-size:12px}
 .linkbtn{background:none;border:0;color:#006b6b;padding:0;font-weight:700}
 .report-table{width:100%;border-collapse:collapse;font-size:13px}.report-table th,.report-table td{border-bottom:1px solid #ddd;padding:8px 4px;text-align:left}
+
+.agenda-card{border-left:4px solid #006b6b}
+.mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.exportbox{border-left:4px solid #6b7280}
+.route-note{font-size:13px;color:#687777}
 </style>
 </head>
 <body>
@@ -167,6 +172,8 @@ function render(){
   page==='map'?mapAllPage():
   page==='reports'?reports():
   page==='security'?securityPage():
+  page==='agenda'?agenda():
+  page==='backup'?backupPage():
   history();
  $('root').innerHTML=`<div class="app"><header>AdminClientes</header><main>${body}</main>
  <div class="nav">
@@ -222,7 +229,8 @@ function dashboard(){
  <div class="actions"><button class="primary" onclick="newClient()">＋ Nuevo cliente</button>
  <button class="outline" onclick="page='collection';render()">💰 Cobranza</button></div>
  <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='map';render()">🗺️ Mapa general</button><button class="outline" onclick="page='reports';render()">📄 Reportes</button></div>
- <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='security';render()">🔐 Seguridad</button><button class="outline" onclick="printDailyTicket()">🧾 Ticket/resumen</button></div>`;
+ <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='security';render()">🔐 Seguridad</button><button class="outline" onclick="printDailyTicket()">🧾 Ticket/resumen</button></div>
+ <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='agenda';render()">🗓️ Agenda</button><button class="outline" onclick="page='backup';render()">💾 Respaldo</button></div>`;
 }
 
 function list(){
@@ -548,6 +556,127 @@ function filterCollection(q){
 
 function quickPayment(id){
  selected=id;page='payments';render();
+}
+
+
+/* =========================
+   V2.4 — AGENDA Y RESPALDO
+   No requiere nuevas tablas.
+========================= */
+
+function agenda(){
+ const today=localToday();
+ const list=clients
+  .filter(c=>c.proximo_pago && String(c.proximo_pago).slice(0,10)===today)
+  .sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),'es'));
+
+ const overdue=clients
+  .filter(c=>c.proximo_pago && String(c.proximo_pago).slice(0,10)<today)
+  .sort((a,b)=>String(a.proximo_pago).localeCompare(String(b.proximo_pago)));
+
+ const upcoming=clients
+  .filter(c=>c.proximo_pago && String(c.proximo_pago).slice(0,10)>today)
+  .sort((a,b)=>String(a.proximo_pago).localeCompare(String(b.proximo_pago)))
+  .slice(0,20);
+
+ return `<button class="outline" onclick="page='dashboard';render()">← Inicio</button>
+ <h2>🗓️ Agenda de cobranza</h2>
+ <div class="card">
+  <b>Hoy · ${date(today)}</b>
+  <div class="mini-grid" style="margin-top:10px">
+   <div><small>Vencidos</small><b>${overdue.length}</b></div>
+   <div><small>Vencen hoy</small><b>${list.length}</b></div>
+  </div>
+ </div>
+ ${agendaGroup('🔴 Vencidos',overdue)}
+ ${agendaGroup('🟠 Cobrar hoy',list)}
+ ${agendaGroup('📅 Próximos 20',upcoming)}
+ <div class="actions" style="margin-top:10px">
+  <button class="primary" onclick="printAgenda()">🖨️ Imprimir agenda</button>
+  <button class="outline" onclick="page='map';render()">🗺️ Ver mapa</button>
+ </div>`;
+}
+
+function agendaGroup(title,arr){
+ if(!arr.length)return `<div class="sectiontitle"><h3>${title}</h3></div><div class="card">No hay clientes en este grupo.</div>`;
+ return `<div class="sectiontitle"><h3>${title}</h3></div>`+
+ arr.map(c=>`<div class="card agenda-card" onclick="openClient('${c.id}')">
+  <b>${esc(c.nombre)}</b><br>
+  <small>Cuenta #${esc(c.numero_cuenta)}</small><br>
+  📅 ${date(c.proximo_pago)} · <b>${money(c.cantidad_pago)}</b><br>
+  ${statusBadge(c)} · Saldo: ${money(obligationInfo(c).balance)}
+  ${c.telefono?`<br>📞 ${esc(c.telefono)}`:''}
+  ${c.latitud!=null&&c.longitud!=null?'<br>📍 Ubicación disponible':''}
+  <div class="actions" style="margin-top:8px">
+   <button class="primary" onclick="event.stopPropagation();quickPayment('${c.id}')">💵 Cobrar</button>
+   ${c.latitud!=null&&c.longitud!=null?`<button class="outline" onclick="event.stopPropagation();openMap(${Number(c.latitud)},${Number(c.longitud)})">🗺️ Ruta</button>`:''}
+  </div>
+ </div>`).join('');
+}
+
+function printAgenda(){
+ const today=localToday();
+ const arr=clients.filter(c=>c.proximo_pago&&String(c.proximo_pago).slice(0,10)<=today)
+  .sort((a,b)=>String(a.proximo_pago).localeCompare(String(b.proximo_pago)));
+ const rows=arr.map(c=>`<tr><td>${esc(c.nombre)}</td><td>${esc(c.numero_cuenta)}</td><td>${date(c.proximo_pago)}</td><td>${money(obligationInfo(c).balance)}</td></tr>`).join('');
+ const w=window.open('','_blank','width=800,height=700');
+ if(!w)return message('Permite ventanas emergentes para imprimir.');
+ w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Agenda de cobranza</title>
+ <style>body{font-family:Arial;margin:20px}h2{text-align:center}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:7px;text-align:left}</style>
+ </head><body><h2>AdminClientes — Agenda de cobranza</h2><p>Fecha: ${date(today)}</p>
+ <table><thead><tr><th>Cliente</th><th>Cuenta</th><th>Próximo pago</th><th>Saldo</th></tr></thead><tbody>${rows||'<tr><td colspan="4">Sin clientes pendientes.</td></tr>'}</tbody></table>
+ <script>window.onload=()=>{window.print();setTimeout(()=>window.close(),500)}<\/script></body></html>`);
+ w.document.close();
+}
+
+function csvCell(v){
+ const s=String(v??'').replace(/"/g,'""');
+ return `"${s}"`;
+}
+
+function downloadCSV(filename, rows){
+ const csv='\ufeff'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
+ const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+ const a=document.createElement('a');
+ a.href=URL.createObjectURL(blob);
+ a.download=filename;
+ document.body.appendChild(a);a.click();a.remove();
+ setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+function exportClientsCSV(){
+ const rows=[['ID','Cuenta','Nombre','Teléfono','Cantidad','Frecuencia','Próximo pago','Latitud','Longitud','Notas']];
+ clients.forEach(c=>rows.push([c.id,c.numero_cuenta,c.nombre,c.telefono,c.cantidad_pago,c.frecuencia_pago,c.proximo_pago,c.latitud,c.longitud,c.notas]));
+ downloadCSV('AdminClientes_clientes.csv',rows);
+}
+
+function exportPaymentsCSV(){
+ const rows=[['ID','Cliente ID','Fecha','Cantidad','Método','Notas']];
+ payments.forEach(p=>rows.push([p.id,p.cliente_id,p.fecha_pago,p.cantidad,p.metodo_pago,p.notas]));
+ downloadCSV('AdminClientes_pagos.csv',rows);
+}
+
+function backupPage(){
+ return `<button class="outline" onclick="page='dashboard';render()">← Inicio</button>
+ <h2>💾 Respaldo de datos</h2>
+ <div class="card exportbox">
+  <b>Exportar información</b>
+  <p class="route-note">El respaldo se descarga directamente en tu dispositivo. No modifica Supabase.</p>
+  <div class="actions">
+   <button class="primary" onclick="exportClientsCSV()">👥 Clientes CSV</button>
+   <button class="primary" onclick="exportPaymentsCSV()">💵 Pagos CSV</button>
+  </div>
+ </div>
+ <div class="card">
+  <b>Resumen del respaldo</b>
+  <p>Clientes: <b>${clients.length}</b></p>
+  <p>Pagos registrados: <b>${payments.length}</b></p>
+  <small>Los archivos CSV pueden abrirse en Excel y sirven como respaldo adicional.</small>
+ </div>
+ <div class="card">
+  <b>☁️ Supabase</b>
+  <p>Los datos principales continúan almacenándose y sincronizándose en Supabase. Estos archivos son una copia local adicional.</p>
+ </div>`;
 }
 
 function history(){
