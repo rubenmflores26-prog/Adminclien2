@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#006b6b">
-<title>AdminClientes V2.4</title>
+<title>AdminClientes V2.5</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
 body{margin:0;font-family:system-ui;background:#f4f7f7;color:#173232}
@@ -53,6 +53,13 @@ small{color:#687777}.error{background:#ffe9e9;color:#9b1c1c;padding:10px;border-
 .mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .exportbox{border-left:4px solid #6b7280}
 .route-note{font-size:13px;color:#687777}
+
+.calendar-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:10px}
+.cal-head{font-size:11px;text-align:center;color:#687777;font-weight:700;padding:4px}
+.cal-day{background:white;border:1px solid #dfe8e8;border-radius:9px;min-height:62px;padding:6px;font-size:12px;cursor:pointer}
+.cal-day b{display:block;font-size:14px}.cal-empty{visibility:hidden}.cal-today{outline:2px solid #008f7a}
+.cal-due{background:#fff4df}.cal-overdue{background:#ffe9e9}.wa{background:#128c7e;color:white}
+.receiptno{font-size:12px;color:#687777}
 </style>
 </head>
 <body>
@@ -174,6 +181,7 @@ function render(){
   page==='security'?securityPage():
   page==='agenda'?agenda():
   page==='backup'?backupPage():
+  page==='calendar'?calendarPage():
   history();
  $('root').innerHTML=`<div class="app"><header>AdminClientes</header><main>${body}</main>
  <div class="nav">
@@ -230,7 +238,8 @@ function dashboard(){
  <button class="outline" onclick="page='collection';render()">💰 Cobranza</button></div>
  <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='map';render()">🗺️ Mapa general</button><button class="outline" onclick="page='reports';render()">📄 Reportes</button></div>
  <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='security';render()">🔐 Seguridad</button><button class="outline" onclick="printDailyTicket()">🧾 Ticket/resumen</button></div>
- <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='agenda';render()">🗓️ Agenda</button><button class="outline" onclick="page='backup';render()">💾 Respaldo</button></div>`;
+ <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='agenda';render()">🗓️ Agenda</button><button class="outline" onclick="page='calendar';render()">📆 Calendario</button></div>
+ <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='backup';render()">💾 Respaldo</button><button class="outline" onclick="printMonthlyReport()">📈 Reporte mensual</button></div>`;
 }
 
 function list(){
@@ -426,257 +435,91 @@ function payForm(){
 }
 
 async function savePayment(){
- const c=clients.find(x=>x.id===selected),amount=Number($('pa').value),paymentDate=$('pd').value;
- if(!c)return message('Cliente no encontrado.');
+ const c=clients.find(x=>x.id===selected);
+ const amount=Number($('pa').value), fecha=$('pd').value;
+ const metodo=$('pm').value, notas=$('pn').value;
  if(!Number.isFinite(amount)||amount<=0)return message('Escribe un monto válido.');
- if(!paymentDate)return message('Selecciona la fecha del pago.');
-
- // Guardamos primero el pago.
+ if(!fecha)return message('Selecciona la fecha del pago.');
  const r=await db.from('pagos').insert({
-  user_id:session.user.id,
-  cliente_id:c.id,
-  cantidad:amount,
-  fecha_pago:paymentDate,
-  metodo_pago:$('pm').value,
-  notas:$('pn').value
- });
+  user_id:session.user.id,cliente_id:c.id,cantidad:amount,
+  fecha_pago:fecha,metodo_pago:metodo,notas:notas
+ }).select().single();
  if(r.error)return message(r.error.message);
-
- // Recargamos para incluir el pago recién registrado y calculamos
- // cuánto se ha cubierto del periodo actual.
- await load();
- const fresh=clients.find(x=>x.id===c.id);
- let nextUpdated=false;
-
- if(fresh && fresh.proximo_pago){
-  const due=String(fresh.proximo_pago).slice(0,10);
-  const freq=fresh.frecuencia_pago||'Mensual';
-  const start=subPeriod(due,freq);
-  const targetDate=paymentDate;
-  const periodPaid=payments
-   .filter(p=>p.cliente_id===fresh.id)
-   .filter(p=>{
-    const d=String(p.fecha_pago).slice(0,10);
-    return d>start && d<=targetDate;
-   })
-   .reduce((sum,p)=>sum+(Number(p.cantidad)||0),0);
-  const required=Number(fresh.cantidad_pago)||0;
-
-  // Si el total de pagos del periodo cubre la cuota completa,
-  // movemos el próximo pago exactamente un periodo hacia adelante.
-  if(required>0 && periodPaid>=required){
-   const next=addPeriod(due,freq);
-   const u=await db.from('clientes')
-    .update({proximo_pago:next})
-    .eq('id',fresh.id)
-    .eq('user_id',session.user.id)
-    .select('id,proximo_pago')
-    .single();
-
-   if(u.error)return message('Pago guardado, pero no se pudo actualizar el próximo pago: '+u.error.message);
-   if(String(u.data?.proximo_pago||'').slice(0,10)!==next)
-    return message('Pago guardado, pero Supabase no confirmó el cambio de fecha. Revisa las políticas RLS de la tabla clientes.');
-
-   nextUpdated=true;
-   await load();
-  }
- }
-
- page='detail';
- render();
- message(nextUpdated
-  ? 'Pago guardado. La cuota quedó cubierta y el próximo pago se actualizó a '+date(clients.find(x=>x.id===c.id)?.proximo_pago)+'.'
-  : 'Pago guardado correctamente. El saldo del periodo todavía tiene pendiente.');
+ await load(); page='detail'; render();
+ if(confirm('Pago guardado correctamente. ¿Deseas imprimir el ticket ahora?')) printPaymentTicket(r.data);
 }
 
-/* NUEVA SECCIÓN: COBRANZA */
-function collection(){
- const today=localToday();
- const overdue=clients.filter(c=>{const o=obligationInfo(c);return o.status==='overdue'||o.status==='partial';})
-  .sort((a,b)=>String(a.proximo_pago).localeCompare(String(b.proximo_pago)));
- const todayList=clients.filter(c=>obligationInfo(c).status==='today');
- const upcoming=clients.filter(c=>obligationInfo(c).status==='upcoming')
-  .sort((a,b)=>String(a.proximo_pago).localeCompare(String(b.proximo_pago)));
-
- const overdueTotal=overdue.reduce((s,c)=>s+(Number(c.cantidad_pago)||0),0);
- const todayTotal=todayList.reduce((s,c)=>s+(Number(c.cantidad_pago)||0),0);
- const upcomingTotal=upcoming.reduce((s,c)=>s+(Number(c.cantidad_pago)||0),0);
- const paidToday=payments.filter(p=>String(p.fecha_pago).slice(0,10)===today)
-  .reduce((s,p)=>s+(Number(p.cantidad)||0),0);
-
- return `<h2>💰 Cobranza</h2>
- <div class="stats">
- <div class="stat">🔴<small>Vencido</small><b>${money(overdueTotal)}</b><small>${overdue.length} cliente(s)</small></div>
- <div class="stat">🟠<small>Vence hoy</small><b>${money(todayTotal)}</b><small>${todayList.length} cliente(s)</small></div>
- <div class="stat">📅<small>Próximos</small><b>${money(upcomingTotal)}</b><small>${upcoming.length} cliente(s)</small></div>
- <div class="stat">✅<small>Cobrado hoy</small><b>${money(paidToday)}</b></div>
- </div>
- <div class="actions"><button class="outline" onclick="page='reports';render()">📄 Reportes</button><button class="outline" onclick="page='map';render()">🗺️ Mapa</button></div><label>🔎 Buscar cliente</label><input id="collectionSearch" placeholder="Nombre, cuenta o teléfono..." oninput="filterCollection(this.value)">
- <div id="collectionList">${collectionCards(overdue,todayList,upcoming)}</div>`;
+function paymentNumber(p){
+ const raw=String(p?.id||'').replace(/[^a-zA-Z0-9]/g,'').slice(-8).toUpperCase();
+ return 'P-'+(raw||Date.now().toString().slice(-8));
 }
 
-function collectionCards(overdue,todayList,upcoming){
- const groups=[
-  {title:'🔴 Pagos vencidos',items:overdue,badge:'VENCIDO',cls:'badge-danger'},
-  {title:'🟠 Pagos de hoy',items:todayList,badge:'HOY',cls:'badge-today'},
-  {title:'📅 Próximos pagos',items:upcoming,badge:'PRÓXIMO',cls:''}
- ];
- let out='';
- groups.forEach(g=>{
-  if(!g.items.length)return;
-  out+=`<div class="sectiontitle"><h3>${g.title}</h3></div>`;
-  out+=g.items.map(c=>collectionCard(c,g.badge,g.cls)).join('');
- });
- if(!out)out='<div class="card greenbox">No hay clientes con pagos programados.</div>';
- return out;
-}
-
-function collectionCard(c,badge,cls){
- return `<div class="card collection-item" onclick="openClient('${c.id}')">
- <div class="row"><div class="grow"><b>${esc(c.nombre)}</b><br>
- <small>Cuenta #${esc(c.numero_cuenta)}</small><br>
- 📅 ${date(c.proximo_pago)} · <b>${money(c.cantidad_pago)}</b><br><small>Saldo: ${money(obligationInfo(c).balance)} · Abonado: ${money(obligationInfo(c).paid)}</small>
- ${c.telefono?`<br>📞 ${esc(c.telefono)}`:''}
- ${c.latitud!=null&&c.longitud!=null?'<br>📍 GPS guardado':''}
- </div><span class="badge ${cls}">${badge}</span><br>${statusBadge(c)}</div>
- <div class="actions" style="margin-top:10px">
- <button class="primary" onclick="event.stopPropagation();quickPayment('${c.id}')">💵 Cobrar</button>
- ${c.latitud!=null&&c.longitud!=null?`<button class="outline" onclick="event.stopPropagation();openMap(${Number(c.latitud)},${Number(c.longitud)})">🗺️ Mapa</button>`:`<button class="outline" onclick="event.stopPropagation();openClient('${c.id}')">📍 Ubicación</button>`}
- </div></div>`;
-}
-
-function filterCollection(q){
- const today=localToday(),term=q.toLowerCase().trim();
- const arr=clients.filter(c=>(c.nombre+' '+c.numero_cuenta+' '+(c.telefono||'')).toLowerCase().includes(term));
- const overdue=arr.filter(c=>c.proximo_pago&&String(c.proximo_pago).slice(0,10)<today).sort((a,b)=>String(a.proximo_pago).localeCompare(String(b.proximo_pago)));
- const todayList=arr.filter(c=>c.proximo_pago&&String(c.proximo_pago).slice(0,10)===today);
- const upcoming=arr.filter(c=>c.proximo_pago&&String(c.proximo_pago).slice(0,10)>today).sort((a,b)=>String(a.proximo_pago).localeCompare(String(b.proximo_pago)));
- $('collectionList').innerHTML=collectionCards(overdue,todayList,upcoming);
-}
-
-function quickPayment(id){
- selected=id;page='payments';render();
-}
-
-
-/* =========================
-   V2.4 — AGENDA Y RESPALDO
-   No requiere nuevas tablas.
-========================= */
-
-function agenda(){
- const today=localToday();
- const list=clients
-  .filter(c=>c.proximo_pago && String(c.proximo_pago).slice(0,10)===today)
-  .sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),'es'));
-
- const overdue=clients
-  .filter(c=>c.proximo_pago && String(c.proximo_pago).slice(0,10)<today)
-  .sort((a,b)=>String(a.proximo_pago).localeCompare(String(b.proximo_pago)));
-
- const upcoming=clients
-  .filter(c=>c.proximo_pago && String(c.proximo_pago).slice(0,10)>today)
-  .sort((a,b)=>String(a.proximo_pago).localeCompare(String(b.proximo_pago)))
-  .slice(0,20);
-
- return `<button class="outline" onclick="page='dashboard';render()">← Inicio</button>
- <h2>🗓️ Agenda de cobranza</h2>
- <div class="card">
-  <b>Hoy · ${date(today)}</b>
-  <div class="mini-grid" style="margin-top:10px">
-   <div><small>Vencidos</small><b>${overdue.length}</b></div>
-   <div><small>Vencen hoy</small><b>${list.length}</b></div>
-  </div>
- </div>
- ${agendaGroup('🔴 Vencidos',overdue)}
- ${agendaGroup('🟠 Cobrar hoy',list)}
- ${agendaGroup('📅 Próximos 20',upcoming)}
- <div class="actions" style="margin-top:10px">
-  <button class="primary" onclick="printAgenda()">🖨️ Imprimir agenda</button>
-  <button class="outline" onclick="page='map';render()">🗺️ Ver mapa</button>
- </div>`;
-}
-
-function agendaGroup(title,arr){
- if(!arr.length)return `<div class="sectiontitle"><h3>${title}</h3></div><div class="card">No hay clientes en este grupo.</div>`;
- return `<div class="sectiontitle"><h3>${title}</h3></div>`+
- arr.map(c=>`<div class="card agenda-card" onclick="openClient('${c.id}')">
-  <b>${esc(c.nombre)}</b><br>
-  <small>Cuenta #${esc(c.numero_cuenta)}</small><br>
-  📅 ${date(c.proximo_pago)} · <b>${money(c.cantidad_pago)}</b><br>
-  ${statusBadge(c)} · Saldo: ${money(obligationInfo(c).balance)}
-  ${c.telefono?`<br>📞 ${esc(c.telefono)}`:''}
-  ${c.latitud!=null&&c.longitud!=null?'<br>📍 Ubicación disponible':''}
-  <div class="actions" style="margin-top:8px">
-   <button class="primary" onclick="event.stopPropagation();quickPayment('${c.id}')">💵 Cobrar</button>
-   ${c.latitud!=null&&c.longitud!=null?`<button class="outline" onclick="event.stopPropagation();openMap(${Number(c.latitud)},${Number(c.longitud)})">🗺️ Ruta</button>`:''}
-  </div>
- </div>`).join('');
-}
-
-function printAgenda(){
- const today=localToday();
- const arr=clients.filter(c=>c.proximo_pago&&String(c.proximo_pago).slice(0,10)<=today)
-  .sort((a,b)=>String(a.proximo_pago).localeCompare(String(b.proximo_pago)));
- const rows=arr.map(c=>`<tr><td>${esc(c.nombre)}</td><td>${esc(c.numero_cuenta)}</td><td>${date(c.proximo_pago)}</td><td>${money(obligationInfo(c).balance)}</td></tr>`).join('');
- const w=window.open('','_blank','width=800,height=700');
- if(!w)return message('Permite ventanas emergentes para imprimir.');
- w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Agenda de cobranza</title>
- <style>body{font-family:Arial;margin:20px}h2{text-align:center}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:7px;text-align:left}</style>
- </head><body><h2>AdminClientes — Agenda de cobranza</h2><p>Fecha: ${date(today)}</p>
- <table><thead><tr><th>Cliente</th><th>Cuenta</th><th>Próximo pago</th><th>Saldo</th></tr></thead><tbody>${rows||'<tr><td colspan="4">Sin clientes pendientes.</td></tr>'}</tbody></table>
- <script>window.onload=()=>{window.print();setTimeout(()=>window.close(),500)}<\/script></body></html>`);
+function printPaymentTicket(p){
+ const c=clients.find(x=>x.id===p.cliente_id)||clients.find(x=>x.id===selected);
+ const w=window.open('','_blank','width=420,height=700');
+ if(!w)return message('Permite ventanas emergentes para imprimir el ticket.');
+ const no=paymentNumber(p);
+ w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Ticket ${esc(no)}</title>
+ <style>body{font-family:Arial,sans-serif;width:300px;margin:20px auto;color:#111}.c{text-align:center}hr{border:0;border-top:1px dashed #777}.row{display:flex;justify-content:space-between;margin:7px 0}.total{font-size:22px;font-weight:bold;text-align:center;margin:15px 0}</style>
+ </head><body><div class="c"><h2>AdminClientes</h2><b>COMPROBANTE DE PAGO</b><br><small>${esc(no)}</small></div><hr>
+ <p><b>Cliente:</b> ${esc(c?.nombre||'')}</p><p><b>Cuenta:</b> ${esc(c?.numero_cuenta||'')}</p>
+ <div class="row"><span>Fecha</span><b>${date(p.fecha_pago)}</b></div><div class="row"><span>Método</span><b>${esc(p.metodo_pago||'')}</b></div>
+ <div class="total">${money(p.cantidad)}</div>${p.notas?`<p><b>Notas:</b> ${esc(p.notas)}</p>`:''}<hr>
+ <div class="c"><small>Gracias por su pago.</small></div>
+ <script>window.onload=()=>{window.print();setTimeout(()=>window.close(),700)}<\/script></body></html>`);
  w.document.close();
 }
 
-function csvCell(v){
- const s=String(v??'').replace(/"/g,'""');
- return `"${s}"`;
+function sendWhatsApp(id){
+ const c=clients.find(x=>x.id===id);
+ if(!c?.telefono)return message('Este cliente no tiene teléfono registrado.');
+ const phone=String(c.telefono).replace(/\D/g,'');
+ if(phone.length<10)return message('El teléfono no parece tener un número válido.');
+ const info=obligationInfo(c);
+ const text=`Hola ${c.nombre}, te recordamos tu pago de ${money(info.due)} con vencimiento el ${date(c.proximo_pago)}. Saldo pendiente: ${money(info.balance)}.`;
+ window.open('https://wa.me/52'+phone+'?text='+encodeURIComponent(text),'_blank');
 }
 
-function downloadCSV(filename, rows){
- const csv='\ufeff'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
- const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
- const a=document.createElement('a');
- a.href=URL.createObjectURL(blob);
- a.download=filename;
- document.body.appendChild(a);a.click();a.remove();
- setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+function calendarPage(){
+ const base=new Date(), y=base.getFullYear(), m=base.getMonth();
+ const first=new Date(y,m,1), days=new Date(y,m+1,0).getDate();
+ const offset=(first.getDay()+6)%7; let cells='';
+ for(let i=0;i<offset;i++)cells+='<div class="cal-empty"></div>';
+ for(let d=1;d<=days;d++){
+  const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  const arr=clients.filter(c=>c.proximo_pago&&String(c.proximo_pago).slice(0,10)===ds);
+  const cls=ds===localToday()?'cal-today':(ds<localToday()&&arr.length?'cal-overdue':(arr.length?'cal-due':''));
+  cells+=`<div class="cal-day ${cls}" onclick="calendarDay('${ds}')"><b>${d}</b>${arr.length?`<small>👥 ${arr.length}</small><br><small>💵 ${money(arr.reduce((s,c)=>s+(Number(c.cantidad_pago)||0),0))}</small>`:''}</div>`;
+ }
+ return `<button class="outline" onclick="page='dashboard';render()">← Inicio</button><h2>📆 Calendario de cobranza</h2>
+ <div class="card"><b>${base.toLocaleDateString('es-MX',{month:'long',year:'numeric'})}</b>
+ <div class="calendar-grid"><div class="cal-head">L</div><div class="cal-head">M</div><div class="cal-head">X</div><div class="cal-head">J</div><div class="cal-head">V</div><div class="cal-head">S</div><div class="cal-head">D</div>${cells}</div></div>
+ <div class="card"><small>🟢 Hoy · 🟠 Hay cobros · 🔴 Hay vencidos.</small></div>`;
 }
 
-function exportClientsCSV(){
- const rows=[['ID','Cuenta','Nombre','Teléfono','Cantidad','Frecuencia','Próximo pago','Latitud','Longitud','Notas']];
- clients.forEach(c=>rows.push([c.id,c.numero_cuenta,c.nombre,c.telefono,c.cantidad_pago,c.frecuencia_pago,c.proximo_pago,c.latitud,c.longitud,c.notas]));
- downloadCSV('AdminClientes_clientes.csv',rows);
+function calendarDay(ds){
+ const arr=clients.filter(c=>c.proximo_pago&&String(c.proximo_pago).slice(0,10)===ds);
+ if(!arr.length)return message('No hay clientes con pago programado para '+date(ds)+'.');
+ const names=arr.map(c=>`${c.nombre} — ${money(obligationInfo(c).balance)}`).join('\n');
+ if(confirm(`Cobros del ${date(ds)}:\n\n${names}\n\n¿Abrir el primer cliente?`))openClient(arr[0].id);
 }
 
-function exportPaymentsCSV(){
- const rows=[['ID','Cliente ID','Fecha','Cantidad','Método','Notas']];
- payments.forEach(p=>rows.push([p.id,p.cliente_id,p.fecha_pago,p.cantidad,p.metodo_pago,p.notas]));
- downloadCSV('AdminClientes_pagos.csv',rows);
-}
-
-function backupPage(){
- return `<button class="outline" onclick="page='dashboard';render()">← Inicio</button>
- <h2>💾 Respaldo de datos</h2>
- <div class="card exportbox">
-  <b>Exportar información</b>
-  <p class="route-note">El respaldo se descarga directamente en tu dispositivo. No modifica Supabase.</p>
-  <div class="actions">
-   <button class="primary" onclick="exportClientsCSV()">👥 Clientes CSV</button>
-   <button class="primary" onclick="exportPaymentsCSV()">💵 Pagos CSV</button>
-  </div>
- </div>
- <div class="card">
-  <b>Resumen del respaldo</b>
-  <p>Clientes: <b>${clients.length}</b></p>
-  <p>Pagos registrados: <b>${payments.length}</b></p>
-  <small>Los archivos CSV pueden abrirse en Excel y sirven como respaldo adicional.</small>
- </div>
- <div class="card">
-  <b>☁️ Supabase</b>
-  <p>Los datos principales continúan almacenándose y sincronizándose en Supabase. Estos archivos son una copia local adicional.</p>
- </div>`;
+function printMonthlyReport(){
+ const today=localToday(), month=today.slice(0,7);
+ const ps=payments.filter(p=>String(p.fecha_pago).slice(0,7)===month);
+ const total=ps.reduce((s,p)=>s+(Number(p.cantidad)||0),0);
+ const rows=ps.map(p=>{const c=clients.find(x=>x.id===p.cliente_id);
+  return `<tr><td>${date(p.fecha_pago)}</td><td>${esc(c?.nombre||'')}</td><td>${esc(c?.numero_cuenta||'')}</td><td>${esc(p.metodo_pago||'')}</td><td>${money(p.cantidad)}</td></tr>`;
+ }).join('');
+ const w=window.open('','_blank','width=900,height=700');
+ if(!w)return message('Permite ventanas emergentes para imprimir.');
+ w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Reporte mensual</title>
+ <style>body{font-family:Arial;margin:20px}h2{text-align:center}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:7px}tfoot td{font-weight:bold}</style></head><body>
+ <h2>AdminClientes — Reporte mensual</h2><p>Periodo: ${month}</p>
+ <table><thead><tr><th>Fecha</th><th>Cliente</th><th>Cuenta</th><th>Método</th><th>Importe</th></tr></thead><tbody>${rows||'<tr><td colspan="5">Sin pagos.</td></tr>'}</tbody>
+ <tfoot><tr><td colspan="4">TOTAL</td><td>${money(total)}</td></tr></tfoot></table>
+ <script>window.onload=()=>{window.print();setTimeout(()=>window.close(),700)}<\/script></body></html>`);
+ w.document.close();
 }
 
 function history(){
