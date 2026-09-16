@@ -422,24 +422,63 @@ async function savePayment(){
  if(!c)return message('Cliente no encontrado.');
  if(!Number.isFinite(amount)||amount<=0)return message('Escribe un monto válido.');
  if(!paymentDate)return message('Selecciona la fecha del pago.');
- const info=obligationInfo(c);
- const r=await db.from('pagos').insert({user_id:session.user.id,cliente_id:c.id,cantidad:amount,fecha_pago:paymentDate,metodo_pago:$('pm').value,notas:$('pn').value});
+
+ // Guardamos primero el pago.
+ const r=await db.from('pagos').insert({
+  user_id:session.user.id,
+  cliente_id:c.id,
+  cantidad:amount,
+  fecha_pago:paymentDate,
+  metodo_pago:$('pm').value,
+  notas:$('pn').value
+ });
  if(r.error)return message(r.error.message);
+
+ // Recargamos para incluir el pago recién registrado y calculamos
+ // cuánto se ha cubierto del periodo actual.
  await load();
  const fresh=clients.find(x=>x.id===c.id);
+ let nextUpdated=false;
+
  if(fresh && fresh.proximo_pago){
-   const after=obligationInfo(fresh);
-   if(after.balance<=0 && after.status==='paid'){
-     let next=String(fresh.proximo_pago).slice(0,10);
-     let guard=0;
-     while(next<=localToday() && guard<24){next=addPeriod(next,fresh.frecuencia_pago||'Mensual');guard++;}
-     const u=await db.from('clientes').update({proximo_pago:next}).eq('id',fresh.id).eq('user_id',session.user.id);
-     if(u.error)return message('Pago guardado, pero no se pudo actualizar el próximo pago: '+u.error.message);
-     await load();
-   }
+  const due=String(fresh.proximo_pago).slice(0,10);
+  const freq=fresh.frecuencia_pago||'Mensual';
+  const start=subPeriod(due,freq);
+  const targetDate=paymentDate;
+  const periodPaid=payments
+   .filter(p=>p.cliente_id===fresh.id)
+   .filter(p=>{
+    const d=String(p.fecha_pago).slice(0,10);
+    return d>start && d<=targetDate;
+   })
+   .reduce((sum,p)=>sum+(Number(p.cantidad)||0),0);
+  const required=Number(fresh.cantidad_pago)||0;
+
+  // Si el total de pagos del periodo cubre la cuota completa,
+  // movemos el próximo pago exactamente un periodo hacia adelante.
+  if(required>0 && periodPaid>=required){
+   const next=addPeriod(due,freq);
+   const u=await db.from('clientes')
+    .update({proximo_pago:next})
+    .eq('id',fresh.id)
+    .eq('user_id',session.user.id)
+    .select('id,proximo_pago')
+    .single();
+
+   if(u.error)return message('Pago guardado, pero no se pudo actualizar el próximo pago: '+u.error.message);
+   if(String(u.data?.proximo_pago||'').slice(0,10)!==next)
+    return message('Pago guardado, pero Supabase no confirmó el cambio de fecha. Revisa las políticas RLS de la tabla clientes.');
+
+   nextUpdated=true;
+   await load();
+  }
  }
- page='detail';render();
- message('Pago guardado correctamente. Si cubrió el periodo, el próximo pago fue actualizado.');
+
+ page='detail';
+ render();
+ message(nextUpdated
+  ? 'Pago guardado. La cuota quedó cubierta y el próximo pago se actualizó a '+date(clients.find(x=>x.id===c.id)?.proximo_pago)+'.'
+  : 'Pago guardado correctamente. El saldo del periodo todavía tiene pendiente.');
 }
 
 /* NUEVA SECCIÓN: COBRANZA */
