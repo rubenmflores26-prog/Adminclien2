@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#006b6b">
-<title>AdminClientes V2.5</title>
+<title>AdminClientes V2.6</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
 body{margin:0;font-family:system-ui;background:#f4f7f7;color:#173232}
@@ -60,7 +60,7 @@ small{color:#687777}.error{background:#ffe9e9;color:#9b1c1c;padding:10px;border-
 .cal-day b{display:block;font-size:14px}.cal-empty{visibility:hidden}.cal-today{outline:2px solid #008f7a}
 .cal-due{background:#fff4df}.cal-overdue{background:#ffe9e9}.wa{background:#128c7e;color:white}
 .receiptno{font-size:12px;color:#687777}
-</style>
+.syncbox{background:white;border:1px solid #dfe8e8;border-radius:15px;padding:14px;margin:10px 0}.sync-ok{border-left:4px solid #008f7a}.sync-warn{border-left:4px solid #d97706}.audititem{border-left:4px solid #006b6b;padding:9px 10px;margin:8px 0;background:#f8fbfb;border-radius:8px} .duplicate{background:#fff4df;border-left:4px solid #d97706;padding:10px;border-radius:10px;margin:10px 0}</style>
 </head>
 <body>
 <div id="root"></div>
@@ -79,6 +79,8 @@ let bootError='',selectedLat=null,selectedLng=null,map=null,mapMarker=null,allMa
 let clientFilterStatus='todos',clientFilterDue='todos';
 
 document.addEventListener('DOMContentLoaded',()=>{
+ try{pendingOps=JSON.parse(localStorage.getItem('adminclientes_pending_ops')||'[]')}catch(e){pendingOps=[]}
+ try{auditLog=JSON.parse(localStorage.getItem('adminclientes_audit')||'[]')}catch(e){auditLog=[]}
  render();
  start().catch(e=>{
   bootError=e?.message||String(e);page='error';render();
@@ -123,6 +125,14 @@ function statusBadge(c){const o=obligationInfo(c);return `<span class="badge ${o
 const $=id=>document.getElementById(id);
 const message=t=>alert(t);
 
+function saveLocalState(){try{localStorage.setItem('adminclientes_pending_ops',JSON.stringify(pendingOps));localStorage.setItem('adminclientes_audit',JSON.stringify(auditLog.slice(0,200)))}catch(e){}}
+function addAudit(action,detail){auditLog.unshift({action,detail,at:new Date().toISOString(),user:session?.user?.email||'Usuario'});auditLog=auditLog.slice(0,200);saveLocalState()}
+function queueOperation(type,payload){pendingOps.push({id:Date.now()+"-"+Math.random().toString(36).slice(2,7),type,payload});saveLocalState()}
+async function syncPending(){if(syncBusy||!session||!pendingOps.length||navigator.onLine===false)return;syncBusy=true;const failed=[];for(const op of [...pendingOps]){let r;if(op.type==='insert_client')r=await db.from('clientes').insert(op.payload);else if(op.type==='update_client')r=await db.from('clientes').update(op.payload.data).eq('id',op.payload.id).eq('user_id',session.user.id);else if(op.type==='insert_payment')r=await db.from('pagos').insert(op.payload);if(r?.error)failed.push(op)}pendingOps=failed;saveLocalState();try{await load()}catch(e){}syncBusy=false;if(page==='sync')render()}
+addEventListener('online',syncPending);
+function syncPage(){return `<button class="outline" onclick="page='dashboard';render()">← Inicio</button><h2>🔄 Sincronización</h2><div class="syncbox ${navigator.onLine===false?'sync-warn':'sync-ok'}"><b>${navigator.onLine===false?'🟠 Sin conexión':'🟢 Conectado'}</b><p>Operaciones pendientes: <b>${pendingOps.length}</b></p><button class="primary" onclick="syncPending()">🔄 Sincronizar ahora</button></div><div class="syncbox"><b>Datos actuales</b><p>Clientes: ${clients.length}</p><p>Pagos: ${payments.length}</p></div>`}
+function auditPage(){return `<button class="outline" onclick="page='dashboard';render()">← Inicio</button><h2>📝 Bitácora</h2>${auditLog.length?auditLog.map(a=>`<div class="audititem"><b>${esc(a.action)}</b><br>${esc(a.detail)}<br><small>${new Date(a.at).toLocaleString('es-MX')} · ${esc(a.user)}</small></div>`).join(''):'<div class="card">No hay operaciones registradas.</div>'}`}
+function findDuplicates(account,phone,excludeId){const a=String(account||'').trim().toLowerCase(),p=String(phone||'').replace(/\D/g,'');return clients.filter(c=>c.id!==excludeId&&((a&&String(c.numero_cuenta||'').trim().toLowerCase()===a)||(p&&String(c.telefono||'').replace(/\D/g,'')===p)))}
 async function load(){
  if(!session)return;
  const a=await db.from('clientes').select('*').eq('user_id',session.user.id).order('created_at',{ascending:false});
@@ -181,6 +191,8 @@ function render(){
   page==='security'?securityPage():
   page==='agenda'?agenda():
   page==='backup'?backupPage():
+  page==='sync'?syncPage():
+  page==='audit'?auditPage():
   page==='calendar'?calendarPage():
   history();
  $('root').innerHTML=`<div class="app"><header>AdminClientes</header><main>${body}</main>
@@ -239,7 +251,7 @@ function dashboard(){
  <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='map';render()">🗺️ Mapa general</button><button class="outline" onclick="page='reports';render()">📄 Reportes</button></div>
  <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='security';render()">🔐 Seguridad</button><button class="outline" onclick="printDailyTicket()">🧾 Ticket/resumen</button></div>
  <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='agenda';render()">🗓️ Agenda</button><button class="outline" onclick="page='calendar';render()">📆 Calendario</button></div>
- <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='backup';render()">💾 Respaldo</button><button class="outline" onclick="printMonthlyReport()">📈 Reporte mensual</button></div>`;
+ <div class="actions" style="margin-top:8px"><button class="outline" onclick="page='backup';render()">💾 Respaldo</button><button class="outline" onclick="printMonthlyReport()">📈 Reporte mensual</button></div><div class="actions" style="margin-top:8px"><button class="outline" onclick="page='sync';render()">🔄 Sincronización</button><button class="outline" onclick="page='audit';render()">📝 Bitácora</button></div>`;
 }
 
 function list(){
@@ -440,6 +452,8 @@ async function savePayment(){
  const metodo=$('pm').value, notas=$('pn').value;
  if(!Number.isFinite(amount)||amount<=0)return message('Escribe un monto válido.');
  if(!fecha)return message('Selecciona la fecha del pago.');
+ if(navigator.onLine===false){queueOperation('insert_payment',{user_id:session.user.id,cliente_id:c.id,cantidad:amount,fecha_pago:$('pd').value,metodo_pago:$('pm').value,notas:$('pn').value});addAudit('Pago registrado (pendiente)',c.nombre+' · '+money(amount));message('Sin conexión. El pago quedó pendiente de sincronización.');page='detail';render();return;}
+
  const r=await db.from('pagos').insert({
   user_id:session.user.id,cliente_id:c.id,cantidad:amount,
   fecha_pago:fecha,metodo_pago:metodo,notas:notas
