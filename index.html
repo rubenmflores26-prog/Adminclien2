@@ -75,12 +75,21 @@ const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 const BUCKET='Fotos-clientes';
 
 let session=null,clients=[],payments=[],page='login',selected=null,photoFile=null;
+let pendingOps=[],auditLog=[],syncBusy=false;
+const OFFLINE_CLIENTS_KEY='adminclientes_cache_clients';
+const OFFLINE_PAYMENTS_KEY='adminclientes_cache_payments';
+function saveOfflineCache(){try{localStorage.setItem(OFFLINE_CLIENTS_KEY,JSON.stringify(clients));localStorage.setItem(OFFLINE_PAYMENTS_KEY,JSON.stringify(payments));}catch(e){}}
+function loadOfflineCache(){try{clients=JSON.parse(localStorage.getItem(OFFLINE_CLIENTS_KEY)||'[]');}catch(e){clients=[]}try{payments=JSON.parse(localStorage.getItem(OFFLINE_PAYMENTS_KEY)||'[]');}catch(e){payments=[]}}
+function offlineId(){return (crypto&&crypto.randomUUID)?crypto.randomUUID():('offline-'+Date.now()+'-'+Math.random().toString(36).slice(2));}
+function registerServiceWorker(){if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(()=>{});}}
 let bootError='',selectedLat=null,selectedLng=null,map=null,mapMarker=null,allMap=null,allMapMarkers=[];
 let clientFilterStatus='todos',clientFilterDue='todos';
 
 document.addEventListener('DOMContentLoaded',()=>{
  try{pendingOps=JSON.parse(localStorage.getItem('adminclientes_pending_ops')||'[]')}catch(e){pendingOps=[]}
  try{auditLog=JSON.parse(localStorage.getItem('adminclientes_audit')||'[]')}catch(e){auditLog=[]}
+ loadOfflineCache();
+ registerServiceWorker();
  render();
  start().catch(e=>{
   bootError=e?.message||String(e);page='error';render();
@@ -128,17 +137,23 @@ const message=t=>alert(t);
 function saveLocalState(){try{localStorage.setItem('adminclientes_pending_ops',JSON.stringify(pendingOps));localStorage.setItem('adminclientes_audit',JSON.stringify(auditLog.slice(0,200)))}catch(e){}}
 function addAudit(action,detail){auditLog.unshift({action,detail,at:new Date().toISOString(),user:session?.user?.email||'Usuario'});auditLog=auditLog.slice(0,200);saveLocalState()}
 function queueOperation(type,payload){pendingOps.push({id:Date.now()+"-"+Math.random().toString(36).slice(2,7),type,payload});saveLocalState()}
-async function syncPending(){if(syncBusy||!session||!pendingOps.length||navigator.onLine===false)return;syncBusy=true;const failed=[];for(const op of [...pendingOps]){let r;if(op.type==='insert_client')r=await db.from('clientes').insert(op.payload);else if(op.type==='update_client')r=await db.from('clientes').update(op.payload.data).eq('id',op.payload.id).eq('user_id',session.user.id);else if(op.type==='insert_payment')r=await db.from('pagos').insert(op.payload);if(r?.error)failed.push(op)}pendingOps=failed;saveLocalState();try{await load()}catch(e){}syncBusy=false;if(page==='sync')render()}
-addEventListener('online',syncPending);
+async function syncPending(){
+ if(syncBusy||!session||!pendingOps.length||navigator.onLine===false)return;syncBusy=true;const failed=[];
+ for(const op of [...pendingOps]){let r;if(op.type==='insert_client')r=await db.from('clientes').upsert(op.payload,{onConflict:'id'});else if(op.type==='update_client')r=await db.from('clientes').update(op.payload.data).eq('id',op.payload.id).eq('user_id',session.user.id);else if(op.type==='insert_payment')r=await db.from('pagos').insert(op.payload);if(r?.error)failed.push(op);}
+ pendingOps=failed;saveLocalState();try{await load()}catch(e){}syncBusy=false;if(page==='sync')render();
+}
 function syncPage(){return `<button class="outline" onclick="page='dashboard';render()">← Inicio</button><h2>🔄 Sincronización</h2><div class="syncbox ${navigator.onLine===false?'sync-warn':'sync-ok'}"><b>${navigator.onLine===false?'🟠 Sin conexión':'🟢 Conectado'}</b><p>Operaciones pendientes: <b>${pendingOps.length}</b></p><button class="primary" onclick="syncPending()">🔄 Sincronizar ahora</button></div><div class="syncbox"><b>Datos actuales</b><p>Clientes: ${clients.length}</p><p>Pagos: ${payments.length}</p></div>`}
 function auditPage(){return `<button class="outline" onclick="page='dashboard';render()">← Inicio</button><h2>📝 Bitácora</h2>${auditLog.length?auditLog.map(a=>`<div class="audititem"><b>${esc(a.action)}</b><br>${esc(a.detail)}<br><small>${new Date(a.at).toLocaleString('es-MX')} · ${esc(a.user)}</small></div>`).join(''):'<div class="card">No hay operaciones registradas.</div>'}`}
 function findDuplicates(account,phone,excludeId){const a=String(account||'').trim().toLowerCase(),p=String(phone||'').replace(/\D/g,'');return clients.filter(c=>c.id!==excludeId&&((a&&String(c.numero_cuenta||'').trim().toLowerCase()===a)||(p&&String(c.telefono||'').replace(/\D/g,'')===p)))}
 async function load(){
  if(!session)return;
- const a=await db.from('clientes').select('*').eq('user_id',session.user.id).order('created_at',{ascending:false});
- const b=await db.from('pagos').select('*').eq('user_id',session.user.id).order('fecha_pago',{ascending:false});
- if(a.error)throw a.error;if(b.error)throw b.error;
- clients=a.data||[];payments=b.data||[];
+ if(navigator.onLine===false){loadOfflineCache();return;}
+ try{
+  const a=await db.from('clientes').select('*').eq('user_id',session.user.id).order('created_at',{ascending:false});
+  const b=await db.from('pagos').select('*').eq('user_id',session.user.id).order('fecha_pago',{ascending:false});
+  if(a.error)throw a.error;if(b.error)throw b.error;
+  clients=a.data||[];payments=b.data||[];saveOfflineCache();
+ }catch(e){loadOfflineCache();if(!clients.length&&!payments.length)throw e;}
 }
 
 async function signed(path){
@@ -149,21 +164,10 @@ async function signed(path){
 
 async function start(){
  if(!window.supabase)throw new Error('No se pudo cargar la librería de Supabase.');
- const r=await db.auth.getSession();
- if(r.error)throw r.error;
- session=r.data.session;
- if(session){
-  try{await load();page='dashboard';render();}
-  catch(e){bootError=e?.message||String(e);page='error';render();}
- }
- db.auth.onAuthStateChange(async(_e,s)=>{
-  session=s;
-  if(!s){page='login';render();}
-  else{
-   try{await load();page='dashboard';render();}
-   catch(e){bootError=e?.message||String(e);page='error';render();}
-  }
- });
+ let r;try{r=await db.auth.getSession();}catch(e){r={data:{session:null}}}
+ session=r.data?.session||null;
+ if(session){try{await load();page='dashboard';render();}catch(e){loadOfflineCache();page='dashboard';render();}}
+ db.auth.onAuthStateChange(async(_e,s)=>{session=s;if(!s){page='login';render();}else{try{await load();page='dashboard';render();syncPending();}catch(e){loadOfflineCache();page='dashboard';render();}}});
 }
 
 function render(){
@@ -354,22 +358,18 @@ function pickPhoto(i){
 }
 
 async function saveClient(){
- const p={user_id:session.user.id,numero_cuenta:$('account').value.trim(),nombre:$('name').value.trim(),telefono:$('phone').value.trim(),
- cantidad_pago:Number($('amount').value),frecuencia_pago:$('freq').value,proximo_pago:$('next').value||null,
- latitud:selectedLat,longitud:selectedLng,notas:$('notes').value};
+ const p={user_id:session.user.id,numero_cuenta:$('account').value.trim(),nombre:$('name').value.trim(),telefono:$('phone').value.trim(),cantidad_pago:Number($('amount').value),frecuencia_pago:$('freq').value,proximo_pago:$('next').value||null,latitud:selectedLat,longitud:selectedLng,notas:$('notes').value};
  if(!p.numero_cuenta||!p.nombre||!Number.isFinite(p.cantidad_pago))return message('Completa cuenta, nombre y cantidad.');
- let r=selected?await db.from('clientes').update(p).eq('id',selected).eq('user_id',session.user.id).select().single():
- await db.from('clientes').insert(p).select().single();
- if(r.error)return message(r.error.message);
- const id=r.data.id;
- if(photoFile){
-  const ext=(photoFile.name.split('.').pop()||'jpg').replace(/[^a-z0-9]/gi,'')||'jpg';
-  const path=`${session.user.id}/${id}/${crypto.randomUUID()}.${ext}`;
-  const u=await db.storage.from(BUCKET).upload(path,photoFile,{contentType:photoFile.type||'image/jpeg',upsert:false});
-  if(u.error)return message('Cliente guardado, pero foto: '+u.error.message);
-  const x=await db.from('clientes').update({foto_url:path}).eq('id',id).eq('user_id',session.user.id);
-  if(x.error)return message(x.error.message);
+ const dup=findDuplicates(p.numero_cuenta,p.telefono,selected);if(dup.length&&!confirm('Ya existe un cliente con la misma cuenta o teléfono. ¿Deseas continuar?'))return;
+ if(navigator.onLine===false){
+  const id=selected||offlineId();p.id=id;const hadPhoto=!!photoFile;
+  if(selected){const i=clients.findIndex(x=>x.id===selected);if(i>=0)clients[i]={...clients[i],...p};queueOperation('update_client',{id,data:p});addAudit('Cliente editado (pendiente)',p.nombre);}
+  else{clients=[p,...clients];queueOperation('insert_client',p);addAudit('Cliente creado (pendiente)',p.nombre+' · Cuenta '+p.numero_cuenta);}
+  saveOfflineCache();selected=id;photoFile=null;page='detail';render();message(hadPhoto?'Sin conexión: el cliente se guardó. La foto deberá cargarse al volver a estar conectado.':'Sin conexión. El cliente quedó guardado en el dispositivo y pendiente de sincronización.');return;
  }
+ let r=selected?await db.from('clientes').update(p).eq('id',selected).eq('user_id',session.user.id).select().single():await db.from('clientes').insert(p).select().single();
+ if(r.error)return message(r.error.message);const id=r.data.id;
+ if(photoFile){const ext=(photoFile.name.split('.').pop()||'jpg').replace(/[^a-z0-9]/gi,'')||'jpg';const path=`${session.user.id}/${id}/${crypto.randomUUID()}.${ext}`;const u=await db.storage.from(BUCKET).upload(path,photoFile,{contentType:photoFile.type||'image/jpeg',upsert:false});if(u.error)return message('Cliente guardado, pero foto: '+u.error.message);const x=await db.from('clientes').update({foto_url:path}).eq('id',id).eq('user_id',session.user.id);if(x.error)return message(x.error.message);}
  await load();selected=id;photoFile=null;page='detail';render();message('Cliente guardado correctamente en Supabase.');
 }
 
@@ -469,7 +469,10 @@ async function savePayment(){
  const metodo=$('pm').value, notas=$('pn').value;
  if(!Number.isFinite(amount)||amount<=0)return message('Escribe un monto válido.');
  if(!fecha)return message('Selecciona la fecha del pago.');
- if(navigator.onLine===false){queueOperation('insert_payment',{user_id:session.user.id,cliente_id:c.id,cantidad:amount,fecha_pago:$('pd').value,metodo_pago:$('pm').value,notas:$('pn').value});addAudit('Pago registrado (pendiente)',c.nombre+' · '+money(amount));message('Sin conexión. El pago quedó pendiente de sincronización.');page='detail';render();return;}
+ if(navigator.onLine===false){
+ const payment={user_id:session.user.id,cliente_id:c.id,cantidad:amount,fecha_pago:fecha,metodo_pago:metodo,notas:notas};payments=[payment,...payments];queueOperation('insert_payment',payment);
+ const info=obligationInfo(c);if(c.proximo_pago&&amount>=info.balance&&info.balance>0){const next=addPeriod(c.proximo_pago,c.frecuencia_pago||'Mensual');c.proximo_pago=next;queueOperation('update_client',{id:c.id,data:{proximo_pago:next}});}
+ saveOfflineCache();addAudit('Pago registrado (pendiente)',c.nombre+' · '+money(amount));message('Sin conexión. El pago quedó guardado en el dispositivo y pendiente de sincronización.');page='detail';render();return;}
 
  const r=await db.from('pagos').insert({
   user_id:session.user.id,cliente_id:c.id,cantidad:amount,
