@@ -139,7 +139,7 @@ function addAudit(action,detail){auditLog.unshift({action,detail,at:new Date().t
 function queueOperation(type,payload){pendingOps.push({id:Date.now()+"-"+Math.random().toString(36).slice(2,7),type,payload});saveLocalState()}
 async function syncPending(){
  if(syncBusy||!session||!pendingOps.length||navigator.onLine===false)return;syncBusy=true;const failed=[];
- for(const op of [...pendingOps]){let r;if(op.type==='insert_client')r=await db.from('clientes').upsert(op.payload,{onConflict:'id'});else if(op.type==='update_client')r=await db.from('clientes').update(op.payload.data).eq('id',op.payload.id).eq('user_id',session.user.id);else if(op.type==='insert_payment')r=await db.from('pagos').insert(op.payload);if(r?.error)failed.push(op);}
+ for(const op of [...pendingOps]){let r;if(op.type==='insert_client')r=await db.from('clientes').upsert(op.payload,{onConflict:'id'});else if(op.type==='update_client')r=await db.from('clientes').update(op.payload.data).eq('id',op.payload.id).eq('user_id',session.user.id);else if(op.type==='insert_payment')r=await db.from('pagos').insert(op.payload);else if(op.type==='delete_client'){const pd=await db.from('pagos').delete().eq('cliente_id',op.payload.id).eq('user_id',session.user.id);r=pd.error?pd:await db.from('clientes').delete().eq('id',op.payload.id).eq('user_id',session.user.id);}if(r?.error)failed.push(op);}
  pendingOps=failed;saveLocalState();try{await load()}catch(e){}syncBusy=false;if(page==='sync')render();
 }
 function syncPage(){return `<button class="outline" onclick="page='dashboard';render()">← Inicio</button><h2>🔄 Sincronización</h2><div class="syncbox ${navigator.onLine===false?'sync-warn':'sync-ok'}"><b>${navigator.onLine===false?'🟠 Sin conexión':'🟢 Conectado'}</b><p>Operaciones pendientes: <b>${pendingOps.length}</b></p><button class="primary" onclick="syncPending()">🔄 Sincronizar ahora</button></div><div class="syncbox"><b>Datos actuales</b><p>Clientes: ${clients.length}</p><p>Pagos: ${payments.length}</p></div>`}
@@ -385,10 +385,35 @@ function detail(){
  ${c.foto_url?'<img id="detailPhoto" class="photo">':''}<p>${esc(c.notas||'')}</p>
  <div class="actions"><button class="outline" onclick="editClient()">✏️ Editar</button><button class="primary" onclick="page='payments';render()">💵 Registrar pago</button></div>
  <div class="actions" style="margin-top:8px"><button class="outline" onclick="callClient()">📞 Llamar</button><button class="outline" onclick="whatsappClient()">💬 WhatsApp</button></div>
- <div class="actions" style="margin-top:8px"><button class="outline" onclick="printTicket('${c.id}')">🧾 Imprimir ticket</button><button class="outline" onclick="page='reports';render()">📄 Reporte</button></div></div>
+ <div class="actions" style="margin-top:8px"><button class="outline" onclick="printTicket('${c.id}')">🧾 Imprimir ticket</button><button class="outline" onclick="page='reports';render()">📄 Reporte</button></div>
+ <div class="actions" style="margin-top:14px"><button class="danger" style="width:100%" onclick="deleteClient()">🗑️ Eliminar cliente</button></div></div>
  <div class="card"><h3>💳 Historial de pagos</h3><p><b>${ps.length}</b> pago(s) · <b>${money(total)}</b> acumulado</p>
  ${ps.length?ps.map(p=>`<div class="payment"><b>${date(p.fecha_pago)} — ${money(p.cantidad)}</b><br><small>💳 ${esc(p.metodo_pago||'Sin método')}</small>${p.notas?`<br><small>📝 ${esc(p.notas)}</small>`:''}</div>`).join(''):'<div class="mapnote">No hay pagos registrados.</div>'}</div>`;
 }
+async function deleteClient(){
+ const c=clients.find(x=>x.id===selected);if(!c)return message('Cliente no encontrado.');
+ const ok=confirm(`¿Eliminar a ${c.nombre} (Cuenta #${c.numero_cuenta})?\n\nTambién se eliminará su historial de pagos. Esta acción no se puede deshacer.`);
+ if(!ok)return;
+ const confirmText=prompt('Para confirmar, escribe ELIMINAR');
+ if(confirmText!=='ELIMINAR')return message('Eliminación cancelada.');
+ const id=c.id;
+ if(navigator.onLine===false){
+  const hadInsert=pendingOps.some(op=>op.type==='insert_client'&&op.payload?.id===id);
+  pendingOps=pendingOps.filter(op=>!(op.payload?.id===id||op.payload?.cliente_id===id));
+  clients=clients.filter(x=>x.id!==id);
+  payments=payments.filter(x=>x.cliente_id!==id);
+  if(!hadInsert)queueOperation('delete_client',{id,user_id:session.user.id});
+  saveLocalState();saveOfflineCache();addAudit('Cliente eliminado (pendiente)',c.nombre+' · Cuenta '+c.numero_cuenta);
+  selected=null;page='clients';render();message(hadInsert?'Cliente eliminado del dispositivo. No había sincronización pendiente.':'Sin conexión. El cliente quedó marcado para eliminación al sincronizar.');return;
+ }
+ const payDel=await db.from('pagos').delete().eq('cliente_id',id).eq('user_id',session.user.id);
+ if(payDel.error)return message('No se pudo eliminar el historial de pagos: '+payDel.error.message);
+ const del=await db.from('clientes').delete().eq('id',id).eq('user_id',session.user.id);
+ if(del.error)return message('No se pudo eliminar el cliente: '+del.error.message);
+ clients=clients.filter(x=>x.id!==id);payments=payments.filter(x=>x.cliente_id!==id);saveOfflineCache();addAudit('Cliente eliminado',c.nombre+' · Cuenta '+c.numero_cuenta);
+ selected=null;page='clients';render();message('Cliente eliminado correctamente.');
+}
+
 function openMap(lat,lng){window.open('https://www.google.com/maps?q='+encodeURIComponent(lat+','+lng),'_blank')}
 
 function callClient(){
